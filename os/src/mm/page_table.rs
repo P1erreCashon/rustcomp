@@ -5,6 +5,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 bitflags! {
     pub struct PTEFlags: u8 {
         const V = 1 << 0;
@@ -73,6 +75,7 @@ impl PageTable {
     /// Create an empty `PageTable`
     pub fn new() -> Self {
         let frame = frame_alloc().unwrap();
+        log_info!("create pagetable:{:x}",frame.ppn.0);
         PageTable {
             root_ppn: frame.ppn,
             frames: vec![frame],
@@ -99,6 +102,7 @@ impl PageTable {
             if !pte.is_valid() {
                 let frame = frame_alloc().unwrap();
                 *pte = PageTableEntry::new(frame.ppn, PTEFlags::V);
+                log_debug!("create pte:{:x}",frame.ppn.0);
                 self.frames.push(frame);
             }
             ppn = pte.ppn();
@@ -128,7 +132,8 @@ impl PageTable {
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
         let pte = self.find_pte_create(vpn).unwrap();
         assert!(!pte.is_valid(), "vpn {:?} is mapped before mapping", vpn);
-        *pte = PageTableEntry::new(ppn, flags | PTEFlags::V);
+        *pte = PageTableEntry::new(ppn, flags | PTEFlags::V);        
+        log_debug!("mapping table:{:x} vpn:{:x} ppn:{:x}",self.root_ppn.0,vpn.0,ppn.0);
     }
     #[allow(unused)]
     /// Delete a mapping form `vpn`
@@ -136,6 +141,7 @@ impl PageTable {
         let pte = self.find_pte(vpn).unwrap();
         assert!(pte.is_valid(), "vpn {:?} is invalid before unmapping", vpn);
         *pte = PageTableEntry::empty();
+        log_debug!("unmapping table:{:x} vpn:{:x}",self.root_ppn.0,vpn.0);
     }
     /// Translate `VirtPageNum` to `PageTableEntry`
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {

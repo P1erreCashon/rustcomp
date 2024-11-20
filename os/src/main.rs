@@ -36,6 +36,8 @@ mod board;
 
 #[macro_use]
 mod console;
+#[macro_use]
+mod logging;
 mod config;
 mod drivers;
 pub mod fs;
@@ -47,6 +49,7 @@ pub mod syscall;
 pub mod task;
 pub mod timer;
 pub mod trap;
+
 
 use core::arch::global_asm;
 
@@ -68,8 +71,9 @@ fn clear_bss() {
 pub fn rust_main() -> ! {
     clear_bss();
     println!("[kernel] Hello, world!");
+    logging::init_logger();
     mm::init();
-    mm::remap_test();
+//    mm::remap_test();
     trap::init();
     trap::enable_timer_interrupt();
     timer::set_next_trigger();

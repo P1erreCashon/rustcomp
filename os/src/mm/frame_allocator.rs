@@ -7,6 +7,8 @@ use alloc::vec::Vec;
 use core::fmt::{self, Debug, Formatter};
 use lazy_static::*;
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 /// manage a frame which has the same lifecycle as the tracker
 pub struct FrameTracker {
     ///
@@ -53,7 +55,7 @@ impl StackFrameAllocator {
     pub fn init(&mut self, l: PhysPageNum, r: PhysPageNum) {
         self.current = l.0;
         self.end = r.0;
-        println!("last {} Physical Frames.", self.end - self.current);
+        log_info!("last {} Physical Frames.", self.end - self.current);
     }
 }
 impl FrameAllocator for StackFrameAllocator {
@@ -66,16 +68,19 @@ impl FrameAllocator for StackFrameAllocator {
     }
     fn alloc(&mut self) -> Option<PhysPageNum> {
         if let Some(ppn) = self.recycled.pop() {
+            log_debug!("dealloc phys frame ppn:0x{:x}",ppn);
             Some(ppn.into())
         } else if self.current == self.end {
             None
         } else {
             self.current += 1;
+            log_debug!("dealloc phys frame ppn:0x{:x}",self.current-1);
             Some((self.current - 1).into())
         }
     }
     fn dealloc(&mut self, ppn: PhysPageNum) {
         let ppn = ppn.0;
+        log_debug!("dealloc phys frame ppn:0x{:x}",ppn);
         // validity check
         if ppn >= self.current || self.recycled.iter().any(|&v| v == ppn) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn);

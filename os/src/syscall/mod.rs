@@ -26,20 +26,58 @@ mod process;
 
 use fs::*;
 use process::*;
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    let mut result:isize = 0;
     match syscall_id {
-        SYSCALL_OPEN => sys_open(args[0] as *const u8, args[1] as u32),
-        SYSCALL_CLOSE => sys_close(args[0]),
-        SYSCALL_READ => sys_read(args[0], args[1] as *const u8, args[2]),
-        SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
-        SYSCALL_EXIT => sys_exit(args[0] as i32),
-        SYSCALL_YIELD => sys_yield(),
-        SYSCALL_GET_TIME => sys_get_time(),
-        SYSCALL_GETPID => sys_getpid(),
-        SYSCALL_FORK => sys_fork(),
-        SYSCALL_EXEC => sys_exec(args[0] as *const u8),
-        SYSCALL_WAITPID => sys_waitpid(args[0] as isize, args[1] as *mut i32),
+        SYSCALL_OPEN => {
+            result = sys_open(args[0] as *const u8, args[1] as u32);
+            log_debug!("syscall_open result:{}",result);
+        },
+        SYSCALL_CLOSE => {
+            result = sys_close(args[0]);
+            log_debug!("syscall_close result:{}",result);
+        },
+        SYSCALL_READ => {
+            result = sys_read(args[0], args[1] as *const u8, args[2]);
+            log_debug!("syscall_read result:{}",result);
+        },
+        SYSCALL_WRITE =>{
+            result = sys_write(args[0], args[1] as *const u8, args[2]);
+            log_debug!("syscall_write result:{}",result);
+        },
+        SYSCALL_EXIT => {
+            log_debug!("syscall_exit exit code:{}",args[0]);
+            sys_exit(args[0] as i32);
+            
+        },
+        SYSCALL_YIELD => {
+            log_debug!("syscall_yield");
+            sys_yield();
+        },
+        SYSCALL_GET_TIME => {
+            result = sys_get_time();
+            log_debug!("syscall_get_time result:{}",result);
+        },
+        SYSCALL_GETPID => {
+            result = sys_getpid();
+            log_debug!("syscall_getpid result:{}",result);
+        },
+        SYSCALL_FORK => {
+            result = sys_fork();
+            log_debug!("syscall_fork result:{}",result);
+        },
+        SYSCALL_EXEC => {
+            result = sys_exec(args[0] as *const u8);
+            log_debug!("syscall_exec result:{}",result);
+        },
+        SYSCALL_WAITPID => {
+            result = sys_waitpid(args[0] as isize, args[1] as *mut i32);
+            log_debug!("syscall_waitpid result:{}",result);
+        },
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
+    result
 }

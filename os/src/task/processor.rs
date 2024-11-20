@@ -6,6 +6,9 @@ use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+
+const MODULE_LEVEL:log::Level = log::Level::Trace;
+
 ///Processor management structure
 pub struct Processor {
     ///The task currently executing on the current processor
@@ -45,6 +48,7 @@ pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
         if let Some(task) = fetch_task() {
+            log_info!("task:{} takes cpu",task.getpid());
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();

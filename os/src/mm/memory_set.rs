@@ -12,6 +12,8 @@ use core::arch::asm;
 use lazy_static::*;
 use riscv::register::satp;
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 extern "C" {
     fn stext();
     fn etext();
@@ -97,14 +99,14 @@ impl MemorySet {
         // map trampoline
         memory_set.map_trampoline();
         // map kernel sections
-        println!(".text [{:#x}, {:#x})", stext as usize, etext as usize);
-        println!(".rodata [{:#x}, {:#x})", srodata as usize, erodata as usize);
-        println!(".data [{:#x}, {:#x})", sdata as usize, edata as usize);
-        println!(
+        log_info!(".text [{:#x}, {:#x})", stext as usize, etext as usize);
+        log_info!(".rodata [{:#x}, {:#x})", srodata as usize, erodata as usize);
+        log_info!(".data [{:#x}, {:#x})", sdata as usize, edata as usize);
+        log_info!(
             ".bss [{:#x}, {:#x})",
             sbss_with_stack as usize, ebss as usize
         );
-        println!("mapping .text section");
+        log_info!("mapping .text section");
         memory_set.push(
             MapArea::new(
                 (stext as usize).into(),
@@ -114,7 +116,7 @@ impl MemorySet {
             ),
             None,
         );
-        println!("mapping .rodata section");
+        log_info!("mapping .rodata section");
         memory_set.push(
             MapArea::new(
                 (srodata as usize).into(),
@@ -124,7 +126,7 @@ impl MemorySet {
             ),
             None,
         );
-        println!("mapping .data section");
+        log_info!("mapping .data section");
         memory_set.push(
             MapArea::new(
                 (sdata as usize).into(),
@@ -134,7 +136,7 @@ impl MemorySet {
             ),
             None,
         );
-        println!("mapping .bss section");
+        log_info!("mapping .bss section");
         memory_set.push(
             MapArea::new(
                 (sbss_with_stack as usize).into(),
@@ -144,7 +146,7 @@ impl MemorySet {
             ),
             None,
         );
-        println!("mapping physical memory");
+        log_info!("mapping physical memory");
         memory_set.push(
             MapArea::new(
                 (ekernel as usize).into(),
@@ -154,7 +156,7 @@ impl MemorySet {
             ),
             None,
         );
-        println!("mapping memory-mapped registers");
+        log_info!("mapping memory-mapped registers");
         for pair in MMIO {
             memory_set.push(
                 MapArea::new(

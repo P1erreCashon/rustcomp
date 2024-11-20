@@ -11,6 +11,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 pub struct TaskControlBlock {
     // immutable
     pub pid: PidHandle,
@@ -27,7 +29,7 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
     pub memory_set: MemorySet,
     pub parent: Option<Weak<TaskControlBlock>>,
-    pub children: Vec<Arc<TaskControlBlock>>,
+    pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 }
@@ -94,6 +96,7 @@ impl TaskControlBlock {
                 })
             },
         };
+        log_info!("proc {} created",task_control_block.getpid());
         // prepare TrapContext in user space
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
@@ -152,6 +155,7 @@ impl TaskControlBlock {
                 new_fd_table.push(None);
             }
         }
+        log::debug!("fork curproc={} new proc={}",self.getpid(),pid_handle.0);
         let task_control_block = Arc::new(TaskControlBlock {
             pid: pid_handle,
             kernel_stack,

@@ -7,6 +7,8 @@ use crate::task::{
 use crate::timer::get_time_ms;
 use alloc::sync::Arc;
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
@@ -42,6 +44,7 @@ pub fn sys_fork() -> isize {
 pub fn sys_exec(path: *const u8) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
+    log_debug!("exec path={}",path);
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let all_data = app_inode.read_all();
         let task = current_task().unwrap();
@@ -57,7 +60,7 @@ pub fn sys_exec(path: *const u8) -> isize {
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     let task = current_task().unwrap();
     // find a child process
-
+    log::debug!("waitpid pid={}",pid);
     // ---- access current PCB exclusively
     let mut inner = task.inner_exclusive_access();
     if !inner

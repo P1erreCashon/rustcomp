@@ -4,9 +4,12 @@ use crate::sync::UPSafeCell;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use lazy_static::*;
+
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
-    ready_queue: VecDeque<Arc<TaskControlBlock>>,
+    ready_queue: VecDeque<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
 }
 
 /// A simple FIFO scheduler.
@@ -33,6 +36,7 @@ lazy_static! {
 }
 ///Interface offered to add task
 pub fn add_task(task: Arc<TaskControlBlock>) {
+    log_debug!("add task:{} to ready queue",task.getpid());
     TASK_MANAGER.exclusive_access().add(task);
 }
 ///Interface offered to pop the first task

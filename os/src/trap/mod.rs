@@ -26,6 +26,8 @@ use riscv::register::{
     sie, stval, stvec,
 };
 
+const MODULE_LEVEL:log::Level = log::Level::Info;
+
 global_asm!(include_str!("trap.S"));
 /// initialize CSR `stvec` as the entry of `__alltraps`
 pub fn init() {
@@ -62,6 +64,7 @@ pub fn trap_handler() -> ! {
             let mut cx = current_trap_cx();
             cx.sepc += 4;
             // get system call return value
+            log_debug!("syscall id:{} arg1:{} arg2:{} arg3:{}",cx.x[17],cx.x[10],cx.x[11],cx.x[12]);
             let result = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]);
             // cx is changed during sys_exec, so we have to call it again
             cx = current_trap_cx();
