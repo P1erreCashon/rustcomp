@@ -39,14 +39,14 @@ pub use processor::{
     Processor,
 };
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
     let task = take_current_task().unwrap();
 
-    log_info!("task:{} suspend",task.getpid());
+    log_info!("task:{} suspend",task.getpid());//最好不要显示这个
     // ---- access current TCB exclusively
     let mut task_inner = task.inner_exclusive_access();
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
