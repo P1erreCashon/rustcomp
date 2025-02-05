@@ -42,7 +42,7 @@ impl BlockCache {
         unsafe { &*(addr as *const T) }
     }
 
-    pub fn get_mut<T>(&mut self, offset: usize) -> &mut T
+    pub fn get_mut<T>(&mut self, offset: usize) -> &mut T//获取可变引用时就认为盘块一定会被修改
     where
         T: Sized,
     {
@@ -57,7 +57,7 @@ impl BlockCache {
         f(self.get_ref(offset))
     }
 
-    pub fn modify<T, V>(&mut self, offset: usize, f: impl FnOnce(&mut T) -> V) -> V {
+    pub fn modify<T, V>(&mut self, offset: usize, f: impl FnOnce(&mut T) -> V) -> V {//将盘块offset处数据是为T类型数据进行处理
         f(self.get_mut(offset))
     }
 

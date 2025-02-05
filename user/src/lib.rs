@@ -52,7 +52,20 @@ bitflags! {
         const TRUNC = 1 << 10;
     }
 }
+pub fn chdir(path: &str) -> isize {
+    sys_chdir(path)
+}
 
+pub fn unlink(path: &str) -> isize {
+    sys_unlink(path)
+}
+
+pub fn link(old_path: &str,new_path: &str) -> isize {
+    sys_link(old_path, new_path)
+}
+pub fn mkdir(path: &str) -> isize {
+    sys_mkdir(path)
+}
 pub fn open(path: &str, flags: OpenFlags) -> isize {
     sys_open(path, flags.bits)
 }

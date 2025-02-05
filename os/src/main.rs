@@ -65,7 +65,6 @@ fn clear_bss() {
             .fill(0);
     }
 }
-
 #[no_mangle]
 /// the rust entry-point of os
 pub fn rust_main() -> ! {

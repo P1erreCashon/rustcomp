@@ -20,3 +20,4 @@ spin = "0.7.0"
 
 [profile.release]
 debug = true
+opt-level = 0

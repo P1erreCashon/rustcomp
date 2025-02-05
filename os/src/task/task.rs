@@ -2,7 +2,7 @@
 use super::TaskContext;
 use super::{pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT;
-use crate::fs::{File, Stdin, Stdout};
+use crate::fs::{File, Stdin, Stdout,ROOT_INODE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -10,6 +10,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use easy_fs::Inode;
 
 const MODULE_LEVEL:log::Level = log::Level::Info;
 
@@ -32,6 +33,8 @@ pub struct TaskControlBlockInner {
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
+
+    pub cwd:Arc<Inode>,//工作目录
 }
 
 impl TaskControlBlockInner {
@@ -61,7 +64,7 @@ impl TaskControlBlock {
     pub fn inner_exclusive_access(&self) -> RefMut<'_, TaskControlBlockInner> {
         self.inner.exclusive_access()
     }
-    pub fn new(elf_data: &[u8]) -> Self {
+    pub fn new(elf_data: &[u8]) -> Self {//这个函数似乎只用来创建initproc,所以它的cwd是确定的
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
         let trap_cx_ppn = memory_set
@@ -93,6 +96,7 @@ impl TaskControlBlock {
                         // 2 -> stderr
                         Some(Arc::new(Stdout)),
                     ],
+                    cwd:ROOT_INODE.clone()
                 })
             },
         };
@@ -170,6 +174,7 @@ impl TaskControlBlock {
                     children: Vec::new(),
                     exit_code: 0,
                     fd_table: new_fd_table,
+                    cwd:parent_inner.cwd.clone()
                 })
             },
         });

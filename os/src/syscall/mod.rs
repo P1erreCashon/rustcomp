@@ -9,6 +9,10 @@
 //! For clarity, each single syscall is implemented as its own function, named
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
+const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_UNLINK: usize = 18;
+const SYSCALL_LINK: usize = 19;
+const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_READ: usize = 63;
@@ -32,6 +36,22 @@ const MODULE_LEVEL:log::Level = log::Level::Info;
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     let mut result:isize = 0;
     match syscall_id {
+        SYSCALL_CHDIR => {
+            result = sys_chdir(args[0] as *const u8);
+            log_debug!("syscall_chdir result:{}",result);
+        }
+        SYSCALL_LINK => {
+            result = sys_link(args[0] as *const u8,args[1] as *const u8);
+            log_debug!("syscall_link result:{}",result);
+        }
+        SYSCALL_UNLINK => {
+            result = sys_unlink(args[0] as *const u8);
+            log_debug!("syscall_unlink result:{}",result);
+        }
+        SYSCALL_MKDIR => {
+            result = sys_mkdir(args[0] as *const u8);
+            log_debug!("syscall_mkdir result:{}",result);
+        }
         SYSCALL_OPEN => {
             result = sys_open(args[0] as *const u8, args[1] as u32);
             log_debug!("syscall_open result:{}",result);

@@ -97,7 +97,7 @@ lazy_static! {
     
 /* frame allocator instance through lazy_static!    pub static ref FRAME_ALLOCATOR: UPSafeCell<FrameAllocatorImpl> =
         unsafe { UPSafeCell::new(FrameAllocatorImpl::new()) }; */
-        ///frame allocator instance through lazy_static! ans Mutex
+        ///frame allocator instance through lazy_static! and Mutex
         pub static ref FRAME_ALLOCATOR: Mutex<FrameAllocatorImpl> =
             Mutex::new(FrameAllocatorImpl::new());
 }

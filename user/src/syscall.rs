@@ -1,5 +1,9 @@
 use core::arch::asm;
 
+const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_LINK: usize = 19;
+const SYSCALL_UNLINK: usize = 18;
+const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_READ: usize = 63;
@@ -24,6 +28,22 @@ fn syscall(id: usize, args: [usize; 3]) -> isize {
         );
     }
     ret
+}
+
+pub fn sys_chdir(path: &str) -> isize {
+    syscall(SYSCALL_CHDIR, [path.as_ptr() as usize, 0, 0])
+}
+
+pub fn sys_unlink(path: &str) -> isize {
+    syscall(SYSCALL_UNLINK, [path.as_ptr() as usize, 0, 0])
+}
+
+pub fn sys_link(old_path: &str,new_path: &str) -> isize {
+    syscall(SYSCALL_LINK, [old_path.as_ptr() as usize, new_path.as_ptr() as usize, 0])
+}
+
+pub fn sys_mkdir(path: &str) -> isize {
+    syscall(SYSCALL_MKDIR, [path.as_ptr() as usize, 0, 0])
 }
 
 pub fn sys_open(path: &str, flags: u32) -> isize {

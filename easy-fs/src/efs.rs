@@ -1,6 +1,6 @@
 use super::{
     block_cache_sync_all, get_block_cache, Bitmap, BlockDevice, DiskInode, DiskInodeType, Inode,
-    SuperBlock,
+    SuperBlock,INODE_MANAGER
 };
 use crate::BLOCK_SZ;
 use alloc::sync::Arc;
@@ -104,16 +104,17 @@ impl EasyFileSystem {
             })
     }
     /// Get the root inode of the filesystem
-    pub fn root_inode(efs: &Arc<Mutex<Self>>) -> Inode {
+    pub fn root_inode(efs: &Arc<Mutex<Self>>) -> Arc<Inode> {
         let block_device = Arc::clone(&efs.lock().block_device);
         // acquire efs lock temporarily
         let (block_id, block_offset) = efs.lock().get_disk_inode_pos(0);
         // release efs lock
-        Inode::new(block_id, block_offset, Arc::clone(efs), block_device)
+        INODE_MANAGER.lock().get_inode(block_id, block_offset, efs.clone(), block_device)
+/*         Inode::new(block_id, block_offset, Arc::clone(efs), block_device) */
     }
     /// Get inode by id
-    pub fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {
-        let inode_size = core::mem::size_of::<DiskInode>();
+    pub fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {//输入inode的id返回inode的位置（磁盘块号+偏移量（单位为字节））
+        let inode_size = core::mem::size_of::<DiskInode>();   //inode的id的含义为:这个inode为它是从0开始从前往后数第几个inode
         let inodes_per_block = (BLOCK_SZ / inode_size) as u32;
         let block_id = self.inode_area_start_block + inode_id / inodes_per_block;
         (
@@ -121,18 +122,24 @@ impl EasyFileSystem {
             (inode_id % inodes_per_block) as usize * inode_size,
         )
     }
+    /// Get inode id by pos
+    pub fn get_disk_inode_id(&self, block_id: u32,block_offset:usize) ->u32{
+        let inode_size = core::mem::size_of::<DiskInode>(); 
+        let inodes_per_block = (BLOCK_SZ / inode_size) as u32;
+        inodes_per_block * (block_id - self.inode_area_start_block) +(block_offset / inode_size) as u32
+    }
     /// Get data block by id
     pub fn get_data_block_id(&self, data_block_id: u32) -> u32 {
         self.data_area_start_block + data_block_id
     }
     /// Allocate a new inode
-    pub fn alloc_inode(&mut self) -> u32 {
-        self.inode_bitmap.alloc(&self.block_device).unwrap() as u32
+    pub fn alloc_inode(&mut self) -> u32 {//返回inode的id
+        self.inode_bitmap.alloc(&self.block_device).unwrap() as u32//bitmap内编号直接就是inode id
     }
 
     /// Allocate a data block
-    pub fn alloc_data(&mut self) -> u32 {
-        self.data_bitmap.alloc(&self.block_device).unwrap() as u32 + self.data_area_start_block
+    pub fn alloc_data(&mut self) -> u32 {//返回block的块号
+        self.data_bitmap.alloc(&self.block_device).unwrap() as u32 + self.data_area_start_block//bitmap内编号加bitmap start盘块号为真正的盘块号
     }
     /// Deallocate a data block
     pub fn dealloc_data(&mut self, block_id: u32) {

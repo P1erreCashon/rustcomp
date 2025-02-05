@@ -1,6 +1,7 @@
 use clap::{App, Arg};
-use easy_fs::{BlockDevice, EasyFileSystem};
+use easy_fs::{inode_cache_sync_all, BlockDevice, EasyFileSystem};
 use std::fs::{read_dir, File, OpenOptions};
+use std::mem;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -14,7 +15,11 @@ impl BlockDevice for BlockFile {
         let mut file = self.0.lock().unwrap();
         file.seek(SeekFrom::Start((block_id * BLOCK_SZ) as u64))
             .expect("Error when seeking!");
-        assert_eq!(file.read(buf).unwrap(), BLOCK_SZ, "Not a complete block!");
+        let len = file.read(buf).unwrap();
+        if len != BLOCK_SZ{
+            println!("blockid:{}",block_id);
+        }
+        assert_eq!(len, BLOCK_SZ, "Not a complete block!");
     }
 
     fn write_block(&self, block_id: usize, buf: &[u8]) {
@@ -26,7 +31,7 @@ impl BlockDevice for BlockFile {
 }
 
 fn main() {
-    easy_fs_pack().expect("Error when packing easy-fs!");
+   easy_fs_pack().expect("Error when packing easy-fs!");
 }
 
 fn easy_fs_pack() -> std::io::Result<()> {
@@ -76,19 +81,23 @@ fn easy_fs_pack() -> std::io::Result<()> {
         let mut all_data: Vec<u8> = Vec::new();
         host_file.read_to_end(&mut all_data).unwrap();
         // create a file in easy-fs
-        let inode = root_inode.create(app.as_str()).unwrap();
+        let inode = root_inode.create(app.as_str(),easy_fs::DiskInodeType::File).unwrap();
         // write data to easy-fs
         inode.write_at(0, all_data.as_slice());
     }
     // list apps
-    // for app in root_inode.ls() {
-    //     println!("{}", app);
-    // }
+     for app in root_inode.ls() {
+         println!("{}", app);
+     }
+    drop(root_inode);
+    inode_cache_sync_all();
     Ok(())
 }
 
 #[test]
 fn efs_test() -> std::io::Result<()> {
+    let size = mem::size_of::<easy_fs::DiskInode>();
+    assert_eq!(size,128);
     let block_file = Arc::new(BlockFile(Mutex::new({
         let f = OpenOptions::new()
             .read(true)
@@ -101,8 +110,8 @@ fn efs_test() -> std::io::Result<()> {
     EasyFileSystem::create(block_file.clone(), 4096, 1);
     let efs = EasyFileSystem::open(block_file.clone());
     let root_inode = EasyFileSystem::root_inode(&efs);
-    root_inode.create("filea");
-    root_inode.create("fileb");
+    root_inode.create("filea",easy_fs::DiskInodeType::File);
+    root_inode.create("fileb",easy_fs::DiskInodeType::File);
     for name in root_inode.ls() {
         println!("{}", name);
     }
@@ -110,10 +119,28 @@ fn efs_test() -> std::io::Result<()> {
     let greet_str = "Hello, world!";
     filea.write_at(0, greet_str.as_bytes());
     //let mut buffer = [0u8; 512];
+    drop(filea);
+
+    let fileb = root_inode.find("fileb").unwrap();
+    let greet_str = "Hello, world1!";
+    fileb.write_at(0, greet_str.as_bytes());
+    //let mut buffer = [0u8; 512];
+    drop(fileb);
+
+    let filea = root_inode.find("filea").unwrap();
+    let greet_str = "Hello, world!";
     let mut buffer = [0u8; 233];
     let len = filea.read_at(0, &mut buffer);
     assert_eq!(greet_str, core::str::from_utf8(&buffer[..len]).unwrap(),);
+    drop(filea);
 
+    let fileb = root_inode.find("fileb").unwrap();
+    buffer = [0u8; 233];
+    let greet_str = "Hello, world1!";
+    let len = fileb.read_at(0, &mut buffer);
+    assert_eq!(greet_str, core::str::from_utf8(&buffer[..len]).unwrap(),);
+    drop(fileb);
+    let filea = root_inode.find("filea").unwrap();
     let mut random_str_test = |len: usize| {
         filea.clear();
         assert_eq!(filea.read_at(0, &mut buffer), 0,);

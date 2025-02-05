@@ -6,20 +6,20 @@ use core::fmt::{Debug, Formatter, Result};
 /// Magic number for sanity check
 const EFS_MAGIC: u32 = 0x3b800001;
 /// The max number of direct inodes
-const INODE_DIRECT_COUNT: usize = 28;
+pub const INODE_DIRECT_COUNT: usize = 27;
 /// The max length of inode name
 const NAME_LENGTH_LIMIT: usize = 27;
 /// The max number of indirect1 inodes
-const INODE_INDIRECT1_COUNT: usize = BLOCK_SZ / 4;
+pub const INODE_INDIRECT1_COUNT: usize = BLOCK_SZ / 4;
 /// The max number of indirect2 inodes
-const INODE_INDIRECT2_COUNT: usize = INODE_INDIRECT1_COUNT * INODE_INDIRECT1_COUNT;
+pub const INODE_INDIRECT2_COUNT: usize = INODE_INDIRECT1_COUNT * INODE_INDIRECT1_COUNT;
 /// The upper bound of direct inode index
 const DIRECT_BOUND: usize = INODE_DIRECT_COUNT;
 /// The upper bound of indirect1 inode index
-const INDIRECT1_BOUND: usize = DIRECT_BOUND + INODE_INDIRECT1_COUNT;
+pub const INDIRECT1_BOUND: usize = DIRECT_BOUND + INODE_INDIRECT1_COUNT;
 /// The upper bound of indirect2 inode indexs
 #[allow(unused)]
-const INDIRECT2_BOUND: usize = INDIRECT1_BOUND + INODE_INDIRECT2_COUNT;
+pub const INDIRECT2_BOUND: usize = INDIRECT1_BOUND + INODE_INDIRECT2_COUNT;
 /// Super block of a filesystem
 #[repr(C)]
 pub struct SuperBlock {
@@ -68,24 +68,36 @@ impl SuperBlock {
     }
 }
 /// Type of a disk inode
+#[derive(Clone, Copy)]
 #[derive(PartialEq)]
 pub enum DiskInodeType {
+    ///
     File,
+    ///
     Directory,
+    ///
+    None,
 }
 
 /// A indirect block
-type IndirectBlock = [u32; BLOCK_SZ / 4];
+pub type IndirectBlock = [u32; BLOCK_SZ / 4];
 /// A data block
-type DataBlock = [u8; BLOCK_SZ];
+pub type DataBlock = [u8; BLOCK_SZ];
 /// A disk inode
 #[repr(C)]
 pub struct DiskInode {
-    pub size: u32,
+    ///1
+    pub size: u32,//inode的大小（单位为字节）
+    ///2
     pub direct: [u32; INODE_DIRECT_COUNT],
+    ///3
     pub indirect1: u32,
+    ///4
     pub indirect2: u32,
-    type_: DiskInodeType,
+    ///5
+    pub link_count: u32,//链接数
+    ///6
+    pub type_: DiskInodeType,
 }
 
 impl DiskInode {
@@ -96,9 +108,10 @@ impl DiskInode {
         self.direct.iter_mut().for_each(|v| *v = 0);
         self.indirect1 = 0;
         self.indirect2 = 0;
+        self.link_count = 1;
         self.type_ = type_;
     }
-    /// Whether this inode is a directory
+/*     /// Whether this inode is a directory
     pub fn is_dir(&self) -> bool {
         self.type_ == DiskInodeType::Directory
     }
@@ -108,14 +121,14 @@ impl DiskInode {
         self.type_ == DiskInodeType::File
     }
     /// Return block number correspond to size.
-    pub fn data_blocks(&self) -> u32 {
+    pub fn data_blocks(&self) -> u32 {//返回文件占有多少用于存放数据的块
         Self::_data_blocks(self.size)
     }
     fn _data_blocks(size: u32) -> u32 {
         (size + BLOCK_SZ as u32 - 1) / BLOCK_SZ as u32
-    }
-    /// Return number of blocks needed include indirect1/2.
-    pub fn total_blocks(size: u32) -> u32 {
+    } */
+/*     /// Return number of blocks needed include indirect1/2.
+    pub fn total_blocks(size: u32) -> u32 {//记录文件总共多少块（数据块+索引所需块）（不包括inode占的块）
         let data_blocks = Self::_data_blocks(size) as usize;
         let mut total = data_blocks as usize;
         // indirect1
@@ -130,14 +143,16 @@ impl DiskInode {
                 (data_blocks - INDIRECT1_BOUND + INODE_INDIRECT1_COUNT - 1) / INODE_INDIRECT1_COUNT;
         }
         total as u32
-    }
-    /// Get the number of data blocks that have to be allocated given the new size of data
-    pub fn blocks_num_needed(&self, new_size: u32) -> u32 {
+    } */
+    
+/*     /// Get the number of data blocks that have to be allocated given the new size of data
+pub fn blocks_num_needed(&self, new_size: u32) -> u32 {
         assert!(new_size >= self.size);
         Self::total_blocks(new_size) - Self::total_blocks(self.size)
-    }
-    /// Get id of block given inner id
-    pub fn get_block_id(&self, inner_id: u32, block_device: &Arc<dyn BlockDevice>) -> u32 {
+    } */
+    
+/*     /// Get id of block given inner id
+pub fn get_block_id(&self, inner_id: u32, block_device: &Arc<dyn BlockDevice>) -> u32 {//给定inner_id(块的inode区内偏移量 （这个块是inode内从0开始从前往后数第几个块）)，返回实际盘块id
         let inner_id = inner_id as usize;
         if inner_id < INODE_DIRECT_COUNT {
             self.direct[inner_id]
@@ -160,9 +175,10 @@ impl DiskInode {
                     indirect1[last % INODE_INDIRECT1_COUNT]
                 })
         }
-    }
-    /// Inncrease the size of current disk inode
-    pub fn increase_size(
+    } */
+    
+/*    /// Inncrease the size of current disk inode
+ pub fn increase_size(
         &mut self,
         new_size: u32,
         new_blocks: Vec<u32>,
@@ -233,11 +249,13 @@ impl DiskInode {
                     }
                 }
             });
-    }
+    } */
 
-    /// Clear size to zero and return blocks that should be deallocated.
+   
+/*     
+ /// Clear size to zero and return blocks that should be deallocated.
     /// We will clear the block contents to zero later.
-    pub fn clear_size(&mut self, block_device: &Arc<dyn BlockDevice>) -> Vec<u32> {
+pub fn clear_size(&mut self, block_device: &Arc<dyn BlockDevice>) -> Vec<u32> {
         let mut v: Vec<u32> = Vec::new();
         let mut data_blocks = self.data_blocks() as usize;
         self.size = 0;
@@ -307,16 +325,17 @@ impl DiskInode {
             });
         self.indirect2 = 0;
         v
-    }
-    /// Read data from current disk inode
-    pub fn read_at(
+    } */
+    
+/*     /// Read data from current disk inode
+pub fn read_at(
         &self,
         offset: usize,
         buf: &mut [u8],
         block_device: &Arc<dyn BlockDevice>,
-    ) -> usize {
+    ) -> usize {//从文件offset（字节）处连续读取数据，直至读完或把buf填满
         let mut start = offset;
-        let end = (offset + buf.len()).min(self.size as usize);
+        let end = (offset + buf.len());
         if start >= end {
             return 0;
         }
@@ -355,7 +374,7 @@ impl DiskInode {
         offset: usize,
         buf: &[u8],
         block_device: &Arc<dyn BlockDevice>,
-    ) -> usize {
+    ) -> usize {//从文件offset（字节）处连续写数据，直至将文件写满或将buf中数据写完
         let mut start = offset;
         let end = (offset + buf.len()).min(self.size as usize);
         assert!(start <= end);
@@ -386,7 +405,7 @@ impl DiskInode {
             start = end_current_block;
         }
         write_size
-    }
+    } */
 }
 /// A directory entry
 #[repr(C)]

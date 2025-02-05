@@ -11,6 +11,7 @@ spin = "0.7.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 
 [profile.release]
+opt-level = 0  # 禁用优化
 debug = true
 
 [features]
