@@ -13,10 +13,12 @@ use core::cell::RefMut;
 use easy_fs::Inode;
 
 const MODULE_LEVEL:log::Level = log::Level::Info;
-
+///
 pub struct TaskControlBlock {
     // immutable
+    ///
     pub pid: PidHandle,
+    ///
     pub kernel_stack: KernelStack,
     // mutable
     inner: UPSafeCell<TaskControlBlockInner>,
@@ -61,9 +63,11 @@ impl TaskControlBlockInner {
 }
 
 impl TaskControlBlock {
+    ///
     pub fn inner_exclusive_access(&self) -> RefMut<'_, TaskControlBlockInner> {
         self.inner.exclusive_access()
     }
+    ///
     pub fn new(elf_data: &[u8]) -> Self {//这个函数似乎只用来创建initproc,所以它的cwd是确定的
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
@@ -112,6 +116,7 @@ impl TaskControlBlock {
         );
         task_control_block
     }
+    ///
     pub fn exec(&self, elf_data: &[u8]) {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
@@ -137,6 +142,7 @@ impl TaskControlBlock {
         *inner.get_trap_cx() = trap_cx;
         // **** release current PCB
     }
+    ///
     pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
@@ -189,14 +195,21 @@ impl TaskControlBlock {
         // **** release child PCB
         // ---- release parent PCB
     }
+    ///
     pub fn getpid(&self) -> usize {
         self.pid.0
     }
 }
 
+///
 #[derive(Copy, Clone, PartialEq)]
 pub enum TaskStatus {
+    ///
     Ready,
+    ///
     Running,
+    ///
     Zombie,
+    ///
+    Blocked,
 }

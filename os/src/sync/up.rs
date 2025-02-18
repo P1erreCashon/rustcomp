@@ -1,5 +1,9 @@
 //! Uniprocessor interior mutability primitives
 use core::cell::{RefCell, RefMut};
+use riscv::register::{sie, sstatus};
+use spin::{Mutex, MutexGuard};
+use core::ops::{Deref, DerefMut};
+use lazy_static::*;
 
 /// Wrap a static data structure inside it so that we are
 /// able to access it without any `unsafe`.
@@ -26,5 +30,86 @@ impl<T> UPSafeCell<T> {
     /// Exclusive access inner data in UPSafeCell. Panic if the data has been borrowed.
     pub fn exclusive_access(&self) -> RefMut<'_, T> {
         self.inner.borrow_mut()
+    }
+}
+pub struct IntrNestControl{
+    nest_count:usize,
+    sie:bool,
+}
+
+lazy_static! {
+    static ref INTR_NEST_CONTROL:Mutex<IntrNestControl> = Mutex::new(IntrNestControl::new());
+}
+
+impl IntrNestControl{
+    pub fn new()->Self{
+        Self{
+            nest_count:0,
+            sie:false
+        }
+    }
+    pub fn push_off(&mut self){
+        let sie = sstatus::read().sie();
+        unsafe {
+            sstatus::clear_sie();
+        }
+        if self.nest_count == 0{
+            self.sie = sie;
+        }
+        self.nest_count+=1;
+    }
+    pub fn pop_off(&mut self){
+        self.nest_count-=1;
+        if self.nest_count == 0 && self.sie{
+            unsafe {
+                sstatus::set_sie();
+            }
+        }
+    }
+}
+///
+pub struct IntrCell<T>{
+    inner:Mutex<T>,
+}
+
+pub struct IntrMutexGuard<'a, T>(Option<MutexGuard<'a, T>>);
+impl<T> IntrCell<T>{
+    ///
+    pub fn new(value: T) -> Self {
+        Self {
+            inner: Mutex::new(value),
+        }
+    }
+    ///
+    pub fn lock(&self) -> IntrMutexGuard<T> {
+        INTR_NEST_CONTROL.lock().push_off();
+        IntrMutexGuard(Some(self.inner.lock()))
+    }
+    ///
+    pub fn lock_closure<F, V>(&self, f: F) -> V
+    where
+        F: FnOnce(&mut T) -> V,
+    {
+        let mut inner = self.lock();
+        f(inner.deref_mut())
+    }
+}
+
+impl<'a, T> Drop for IntrMutexGuard<'a, T> {
+    fn drop(&mut self) {
+        self.0 = None;
+        INTR_NEST_CONTROL.lock().pop_off();
+    }
+}
+
+impl<'a, T> Deref for IntrMutexGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap().deref()
+    }
+}
+impl<'a, T> DerefMut for IntrMutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().unwrap().deref_mut()
     }
 }

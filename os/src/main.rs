@@ -53,6 +53,8 @@ pub mod trap;
 
 use core::arch::global_asm;
 
+use drivers::chardevice::{CharDevice, UART};
+
 global_asm!(include_str!("entry.asm"));
 /// clear BSS segment
 fn clear_bss() {
@@ -65,19 +67,33 @@ fn clear_bss() {
             .fill(0);
     }
 }
+use lazy_static::*;
+use sync::IntrCell;
+
+lazy_static! {
+    ///
+    pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
+        IntrCell::new(false);
+}
+
 #[no_mangle]
 /// the rust entry-point of os
 pub fn rust_main() -> ! {
+
     clear_bss();
-    println!("[kernel] Hello, world!");
+    
     logging::init_logger();
     mm::init();
+    UART.init();    
+    println!("[kernel] Hello, world!");
 //    mm::remap_test();
     trap::init();
     trap::enable_timer_interrupt();
     timer::set_next_trigger();
+    board::device_init();
     fs::list_apps();
     task::add_initproc();
+    *DEV_NON_BLOCKING_ACCESS.lock() = true;
     task::run_tasks();
     panic!("Unreachable in rust_main!");
 }
