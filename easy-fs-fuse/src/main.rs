@@ -28,6 +28,9 @@ impl BlockDevice for BlockFile {
             .expect("Error when seeking!");
         assert_eq!(file.write(buf).unwrap(), BLOCK_SZ, "Not a complete block!");
     }
+    fn handle_irq(&self) {
+        unimplemented!();
+    }
 }
 
 fn main() {

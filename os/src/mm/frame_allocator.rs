@@ -43,6 +43,7 @@ impl Drop for FrameTracker {
 trait FrameAllocator {
     fn new() -> Self;
     fn alloc(&mut self) -> Option<PhysPageNum>;
+    fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 /// an implementation for frame allocator
@@ -77,6 +78,16 @@ impl FrameAllocator for StackFrameAllocator {
             self.current += 1;
             log_debug!("dealloc phys frame ppn:0x{:x}",self.current-1);
             Some((self.current - 1).into())
+        }
+    }
+    fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>> {
+        if self.current + pages >= self.end {
+            None
+        } else {
+            self.current += pages;
+            let arr: Vec<usize> = (1..pages + 1).collect();
+            let v = arr.iter().map(|x| (self.current - x).into()).collect();
+            Some(v)
         }
     }
     fn dealloc(&mut self, ppn: PhysPageNum) {
@@ -117,6 +128,13 @@ pub fn frame_alloc() -> Option<FrameTracker> {
         .lock()
         .alloc()
         .map(FrameTracker::new)
+}
+///
+pub fn frame_alloc_more(num: usize) -> Option<Vec<FrameTracker>> {
+    FRAME_ALLOCATOR
+        .lock()
+        .alloc_more(num)
+        .map(|x| x.iter().map(|&t| FrameTracker::new(t)).collect())
 }
 /// deallocate a frame
 pub fn frame_dealloc(ppn: PhysPageNum) {

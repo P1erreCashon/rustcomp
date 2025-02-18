@@ -28,9 +28,9 @@ use crate::sbi::shutdown;
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager};
+pub use manager::{fetch_task, TaskManager,wakeup_task};
 use switch::__switch;
-use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus};
 
 pub use manager::add_task;
 pub use pid::{pid_alloc, KernelStack, PidAllocator, PidHandle};
@@ -58,6 +58,19 @@ pub fn suspend_current_and_run_next() {
     // push back to ready queue.
     add_task(task);
     // jump to scheduling cycle
+    schedule(task_cx_ptr);
+}
+
+/// This function must be followed by a schedule
+pub fn block_current_task() -> *mut TaskContext {
+    let task = take_current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.task_status = TaskStatus::Blocked;
+    &mut task_inner.task_cx as *mut TaskContext
+}
+///
+pub fn block_current_and_run_next() {
+    let task_cx_ptr = block_current_task();
     schedule(task_cx_ptr);
 }
 
