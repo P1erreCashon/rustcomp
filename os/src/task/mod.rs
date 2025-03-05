@@ -23,7 +23,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
-use crate::fs::{open_file, OpenFlags};
+use crate::fs::open_file;
 use crate::sbi::shutdown;
 use alloc::sync::Arc;
 pub use context::TaskContext;
@@ -31,7 +31,7 @@ use lazy_static::*;
 pub use manager::{fetch_task, TaskManager,wakeup_task};
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
+use vfs_defs::OpenFlags;
 pub use manager::add_task;
 pub use pid::{pid_alloc, KernelStack, PidAllocator, PidHandle};
 pub use processor::{

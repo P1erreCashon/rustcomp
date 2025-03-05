@@ -18,6 +18,9 @@ log = "0.4"
 sbi-rt = { version = "0.0.2", features = ["legacy"] }
 spin = "0.7.0"
 volatile = "0.3"
+vfs-defs = { path = "../vfs-defs" }
+vfs = { path = "../vfs" }
+device = { path = "../device" }
 
 [profile.release]
 debug = true

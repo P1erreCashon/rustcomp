@@ -2,7 +2,7 @@
 use super::TaskContext;
 use super::{pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT;
-use crate::fs::{File, Stdin, Stdout,ROOT_INODE};
+use crate::fs::{Stdin, Stdout};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -10,7 +10,8 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
-use easy_fs::Inode;
+use vfs_defs::{Dentry,File};
+use vfs::get_root_dentry;
 
 const MODULE_LEVEL:log::Level = log::Level::Info;
 ///
@@ -36,7 +37,7 @@ pub struct TaskControlBlockInner {
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
-    pub cwd:Arc<Inode>,//工作目录
+    pub cwd:Arc<dyn Dentry>,//工作目录
 }
 
 impl TaskControlBlockInner {
@@ -100,7 +101,7 @@ impl TaskControlBlock {
                         // 2 -> stderr
                         Some(Arc::new(Stdout)),
                     ],
-                    cwd:ROOT_INODE.clone()
+                    cwd:get_root_dentry(),
                 })
             },
         };

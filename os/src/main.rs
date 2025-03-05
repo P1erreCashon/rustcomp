@@ -53,7 +53,7 @@ pub mod trap;
 
 use core::arch::global_asm;
 
-use drivers::chardevice::{CharDevice, UART};
+use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
 
 global_asm!(include_str!("entry.asm"));
 /// clear BSS segment
@@ -91,6 +91,8 @@ pub fn rust_main() -> ! {
     trap::enable_timer_interrupt();
     timer::set_next_trigger();
     board::device_init();
+    device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
+    vfs::init();
     fs::list_apps();
     task::add_initproc();
     *DEV_NON_BLOCKING_ACCESS.lock() = true;

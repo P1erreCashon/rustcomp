@@ -1,0 +1,11 @@
+[package]
+name = "vfs-defs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+device = { path = "../device" }
+system-result = { path = "../system-result" }
+spin = "0.7.0"
+bitflags = "2.5"
+downcast-rs = { version = "1.2", default-features = false }

@@ -1,0 +1,12 @@
+[package]
+name = "vfs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vfs-defs = { path = "../vfs-defs" }
+system-result = { path = "../system-result" }
+easy-fs = { path = "../easy-fs" }
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+spin = "0.7.0"
+device = { path = "../device" }
