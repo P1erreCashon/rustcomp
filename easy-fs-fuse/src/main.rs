@@ -1,11 +1,14 @@
 use clap::{App, Arg};
-use easy_fs::{inode_cache_sync_all, BlockDevice, EasyFileSystem};
+use easy_fs::{inode_cache_sync_all, BlockDevice, EasyFileSystem, EfsSuperBlock,EfsFsType,EfsInode};
+use vfs::get_root_dentry;
 use std::fs::{read_dir, File, OpenOptions};
 use std::mem;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::sync::Mutex;
-
+use vfs_defs::{Dentry, DentryState, DiskInodeType, File as OtherFile, FileInner, FileSystemType, SuperBlock, SuperBlockInner};
+use system_result::{SysError,SysResult};
+use easy_fs::EfsFile;
 const BLOCK_SZ: usize = 512;
 
 struct BlockFile(Mutex<File>);
@@ -33,8 +36,9 @@ impl BlockDevice for BlockFile {
     }
 }
 
+
 fn main() {
-   easy_fs_pack().expect("Error when packing easy-fs!");
+   easy_fs_pack().expect("Error when packing easy-fs!");                                                       
 }
 
 fn easy_fs_pack() -> std::io::Result<()> {
@@ -66,9 +70,13 @@ fn easy_fs_pack() -> std::io::Result<()> {
         f.set_len(16 * 2048 * 512).unwrap();
         f
     })));
+    
     // 16MiB, at most 4095 files
-    let efs = EasyFileSystem::create(block_file, 16 * 2048, 1);
-    let root_inode = Arc::new(EasyFileSystem::root_inode(&efs));
+    let efs = EasyFileSystem::create(block_file.clone(), 16 * 2048, 1);
+    
+    device::BLOCK_DEVICE.call_once(||block_file);
+    vfs::init();
+    let root_inode = get_root_dentry();
     let apps: Vec<_> = read_dir(src_path)
         .unwrap()
         .into_iter()
@@ -84,14 +92,17 @@ fn easy_fs_pack() -> std::io::Result<()> {
         let mut all_data: Vec<u8> = Vec::new();
         host_file.read_to_end(&mut all_data).unwrap();
         // create a file in easy-fs
-        let inode = root_inode.create(app.as_str(),easy_fs::DiskInodeType::File).unwrap();
+        let den = root_inode.create(app.as_str(),DiskInodeType::File).unwrap();
+        let inode = den.get_inode().unwrap().downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR).unwrap();
         // write data to easy-fs
         inode.write_at(0, all_data.as_slice());
     }
     // list apps
-     for app in root_inode.ls() {
+     for app in root_inode.clone().ls() {
          println!("{}", app);
      }
+    root_inode.get_inner().children.lock().clear();
+    *root_inode.get_inner().inode.lock() = None;
     drop(root_inode);
     inode_cache_sync_all();
     Ok(())
@@ -111,41 +122,47 @@ fn efs_test() -> std::io::Result<()> {
         f
     })));
     EasyFileSystem::create(block_file.clone(), 4096, 1);
-    let efs = EasyFileSystem::open(block_file.clone());
-    let root_inode = EasyFileSystem::root_inode(&efs);
-    root_inode.create("filea",easy_fs::DiskInodeType::File);
-    root_inode.create("fileb",easy_fs::DiskInodeType::File);
-    for name in root_inode.ls() {
-        println!("{}", name);
+  //  let efs = EasyFileSystem::open(block_file.clone());
+    device::BLOCK_DEVICE.call_once(||block_file);
+    vfs::init();
+    let root_dentry = get_root_dentry();
+    root_dentry.create("filea", DiskInodeType::File);
+    root_dentry.create("fileb", DiskInodeType::File);
+    for (name,child) in (*root_dentry.get_inner().children.lock()).iter(){
+        println!("{}",name);
     }
-    let filea = root_inode.find("filea").unwrap();
+    
+ //   Ok(())
+    
+    let filea = EfsFile::new(true, true, FileInner::new(root_dentry.lookup("filea").unwrap()));
     let greet_str = "Hello, world!";
-    filea.write_at(0, greet_str.as_bytes());
+    filea.write(greet_str.as_bytes());
     //let mut buffer = [0u8; 512];
     drop(filea);
 
-    let fileb = root_inode.find("fileb").unwrap();
+    let fileb = EfsFile::new(true, true, FileInner::new(root_dentry.lookup("fileb").unwrap()));
     let greet_str = "Hello, world1!";
-    fileb.write_at(0, greet_str.as_bytes());
+    fileb.write(greet_str.as_bytes());
     //let mut buffer = [0u8; 512];
     drop(fileb);
 
-    let filea = root_inode.find("filea").unwrap();
+    let filea = EfsFile::new(true, true, FileInner::new(root_dentry.lookup("filea").unwrap()));
     let greet_str = "Hello, world!";
     let mut buffer = [0u8; 233];
-    let len = filea.read_at(0, &mut buffer);
+    let len = filea.read(&mut buffer);
     assert_eq!(greet_str, core::str::from_utf8(&buffer[..len]).unwrap(),);
     drop(filea);
 
-    let fileb = root_inode.find("fileb").unwrap();
+    let fileb = EfsFile::new(true, true, FileInner::new(root_dentry.lookup("fileb").unwrap()));
     buffer = [0u8; 233];
     let greet_str = "Hello, world1!";
-    let len = fileb.read_at(0, &mut buffer);
+    let len = fileb.read(&mut buffer);
     assert_eq!(greet_str, core::str::from_utf8(&buffer[..len]).unwrap(),);
     drop(fileb);
-    let filea = root_inode.find("filea").unwrap();
+
+    let filea = EfsFile::new(true, true, FileInner::new(root_dentry.lookup("filea").unwrap()));
     let mut random_str_test = |len: usize| {
-        filea.clear();
+        filea.get_dentry().get_inode().unwrap().downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR).unwrap().clear();
         assert_eq!(filea.read_at(0, &mut buffer), 0,);
         let mut str = String::new();
         use rand;
@@ -176,6 +193,5 @@ fn efs_test() -> std::io::Result<()> {
     random_str_test(400 * BLOCK_SZ);
     random_str_test(1000 * BLOCK_SZ);
     random_str_test(2000 * BLOCK_SZ);
-
     Ok(())
 }

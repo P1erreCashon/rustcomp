@@ -10,7 +10,10 @@ edition = "2018"
 clap = "2.33.3"
 easy-fs = { path = "../easy-fs" }
 rand = "0.8.0"
-
+vfs-defs = { path = "../vfs-defs" }
+vfs = { path = "../vfs" }
+device = { path = "../device" }
+system-result = { path = "../system-result" }
 # [features]
 # board_qemu = []
 # board_k210 = []

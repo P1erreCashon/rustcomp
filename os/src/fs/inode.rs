@@ -4,17 +4,23 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use core::str::ParseBoolError;
+
+//use super::File;
 use crate::{drivers::BLOCK_DEVICE, task::current_task};
-use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::*;
-use easy_fs::{EasyFileSystem, Inode,DIRENT_SZ,DiskInodeType,INODE_MANAGER};
+use easy_fs::{EasyFileSystem,DIRENT_SZ,INODE_MANAGER};
 use lazy_static::*;
 use spin::Mutex;
 use alloc::string::String;
+use vfs::get_root_dentry;
+use vfs_defs::{Inode,DiskInodeType,File,OpenFlags,Dentry};
+
+
+/* 
 /// A wrapper around a filesystem inode
 /// to implement File trait atop
 pub struct OSInode {
@@ -52,108 +58,64 @@ impl OSInode {
         }
         v
     }
-}
-lazy_static! {
-    ///
-    pub static ref ROOT_INODE: Arc<Inode> = {
-        let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-        EasyFileSystem::root_inode(&efs)
-    };
-}
+}*/
 ///List all files in the filesystems
 pub fn list_apps() {
     println!("/**** APPS ****");
-    for app in ROOT_INODE.ls() {
+    let root_dentry = get_root_dentry();
+    for app in root_dentry.ls(){
         println!("{}", app);
     }
     println!("**************/");
 }
-
-bitflags! {
-    ///Open file flags
-    pub struct OpenFlags: u32 {
-        ///Read only
-        const RDONLY = 0;
-        ///Write only
-        const WRONLY = 1 << 0;
-        ///Read & Write
-        const RDWR = 1 << 1;
-        ///Allow create
-        const CREATE = 1 << 9;
-        ///Clear file and return an empty one
-        const TRUNC = 1 << 10;
-    }
-}
-
-impl OpenFlags {
-    /// Do not check validity for simplicity
-    /// Return (readable, writable)
-    pub fn read_write(&self) -> (bool, bool) {
-        if self.is_empty() {
-            (true, false)
-        } else if self.contains(Self::WRONLY) {
-            (false, true)
-        } else {
-            (true, true)
-        }
-    }
-}
 ///
-pub fn create_file(path:&str,type_:DiskInodeType,fs: Arc<Mutex<EasyFileSystem>>,)->Option<Arc<Inode>>{
-    if let Some(inode) = path_to_inode(path, fs.clone()){
+pub fn create_file(path:&str,type_:DiskInodeType)->Option<Arc<dyn Dentry>>{
+    if let Some(inode) = path_to_dentry(path){
         return Some(inode);
     }
     let mut name = String::new();
-    if let Some(parent) = path_to_father_inode(path,fs.clone(),&mut name){
-        if let Some(inode) = parent.create(name.as_str(),type_){
-            if type_ == DiskInodeType::Directory{
-                if inode.link(".", inode.block_id as u32, inode.block_offset) < 0 
-                || inode.link("..", parent.block_id as u32, parent.block_offset) < 0{
-                    inode.lock_inner().link_count = 0;
-                    return None;
-                }
-                parent.lock_inner().link_count += 1;
-            }
-            return Some(inode);
+    if let Some(parent) = path_to_father_dentry(path,&mut name){
+        let dentry = parent.create(name.as_str(),type_).unwrap();
+        if type_ == DiskInodeType::Directory{
+            let current = dentry.find_or_create(".", DiskInodeType::Directory);
+            let _ = current.link(&dentry);
+            let to_parent = dentry.find_or_create("..", DiskInodeType::Directory);
+            _ = to_parent.link(&parent); 
         }
-        else{
-            return None;
-        }
+        return Some(dentry);
     }
     else{
         return None;
     }
 }
 ///Open file with flags
-pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {//还需增加对设备文件的支持
-    let (readable, writable) = flags.read_write();
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
+pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<dyn File>>{//还需增加对设备文件的支持
     let ret;
     if flags.contains(OpenFlags::CREATE) {// create file
-        if let Some(inode) = create_file(path, DiskInodeType::File,efs.clone()){
-            inode.clear();
-            ret = Some(Arc::new(OSInode::new(readable, writable, inode)));
+        if let Some(dentry) = create_file(path, DiskInodeType::File){
+            dentry.get_inode().unwrap().clear();
+            ret = dentry.open(flags);
         } else {
             return None;
                 //.map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
         }
     } else {
-        if let Some(inode) = path_to_inode(path, efs.clone()){
-            if inode.lock_inner().is_dir() && flags != OpenFlags::RDONLY{
+        if let Some(dentry) = path_to_dentry(path){
+            if dentry.is_dir() && flags.bits() == 0{
                 return None;
             }
-            if flags.contains(OpenFlags::TRUNC) && inode.lock_inner().is_file(){
-                inode.clear();
+            if flags.contains(OpenFlags::TRUNC) && dentry.is_file(){
+                dentry.get_inode().unwrap().clear();
             }
-            ret = Some(Arc::new(OSInode::new(readable, writable, inode)));
+            ret = dentry.open(flags);
         }
         else{
             return None;
         }
     }  
-    ret
+    Some(ret)
 }
-
+/*
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -186,7 +148,7 @@ impl File for OSInode {
         total_write_size
     }
 }
-
+ */
 fn skipelem<'a>(path: &'a str, name: &mut String) -> Option<&'a str> {
     // 跳过开头的斜杠
     let mut path = path.trim_start_matches('/');
@@ -214,49 +176,48 @@ fn skipelem<'a>(path: &'a str, name: &mut String) -> Option<&'a str> {
 
     Some(path)
 }
-fn path_to_inode_(path:&str,
+fn path_to_dirent_(path:&str,
                   to_father:bool,
-                  fs: Arc<Mutex<EasyFileSystem>>,
                   name:&mut String,
-                )->Option<Arc<Inode>>{
+                )->Option<Arc<dyn Dentry>>{
   //  let efs =  fs.lock();
-    let mut inode ;
+    let mut dentry ;
     let mut current = path;
     if path.chars().next() == Some('/'){
-        inode = EasyFileSystem::root_inode(&fs);
+        dentry = get_root_dentry();
     }
     else{
             //获得当前进程的cwd
         if let Some(current_task) = current_task(){
-            inode = current_task.inner_exclusive_access().cwd.clone();
+            dentry = current_task.inner_exclusive_access().cwd.clone();
         }
         else{
-            inode = EasyFileSystem::root_inode(&fs);
+            dentry = get_root_dentry();
         }
     }
     while let Some(new_path) = skipelem(current,name){
         current = new_path;
         if to_father && current.len() == 0 {
-            return Some(inode);
+            return Some(dentry);
         }
-        if let Some(new_inode) = inode.find(name){
-            inode = new_inode;
+        if let Ok(new_dentry) = dentry.lookup(name){
+            dentry = new_dentry;
         }
         else{
             return None;
         }
         
     }
-    return Some(inode);
+    return Some(dentry);
 
 }
 /// get inode from path,get a clone of inode's Arc
-pub fn path_to_inode(path:&str,fs: Arc<Mutex<EasyFileSystem>>)->Option<Arc<Inode>>{
+pub fn path_to_dentry(path:&str)->Option<Arc<dyn Dentry>>{
     let mut name = String::new();
-    path_to_inode_(path, false, fs,&mut name)
+    path_to_dirent_(path, false,&mut name)
 }
 /// get father inode from path ,get a clone of inode's Arc
-pub fn path_to_father_inode(path:&str,fs: Arc<Mutex<EasyFileSystem>>,name:&mut String)->Option<Arc<Inode>>{
-    path_to_inode_(path, true, fs,name)
+pub fn path_to_father_dentry(path:&str,name:&mut String)->Option<Arc<dyn Dentry>>{
+    path_to_dirent_(path, true,name)
 
 }

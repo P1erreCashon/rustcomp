@@ -1,7 +1,11 @@
-use super::{get_block_cache, BlockDevice, BLOCK_SZ};
+use crate::EasyFileSystem;
+
+use super::{get_block_cache, BlockDevice, BLOCK_SZ,EfsInode,INODE_MANAGER};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Formatter, Result};
+use vfs_defs::{SuperBlock, SuperBlockInner,Inode,DiskInodeType};
+use spin::Mutex;
 
 /// Magic number for sanity check
 const EFS_MAGIC: u32 = 0x3b800001;
@@ -22,7 +26,7 @@ pub const INDIRECT1_BOUND: usize = DIRECT_BOUND + INODE_INDIRECT1_COUNT;
 pub const INDIRECT2_BOUND: usize = INDIRECT1_BOUND + INODE_INDIRECT2_COUNT;
 /// Super block of a filesystem
 #[repr(C)]
-pub struct SuperBlock {
+pub struct DiskSuperBlock {
     magic: u32,
     pub total_blocks: u32,
     pub inode_bitmap_blocks: u32,
@@ -31,7 +35,7 @@ pub struct SuperBlock {
     pub data_area_blocks: u32,
 }
 
-impl Debug for SuperBlock {
+impl Debug for DiskSuperBlock {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("SuperBlock")
             .field("total_blocks", &self.total_blocks)
@@ -43,7 +47,7 @@ impl Debug for SuperBlock {
     }
 }
 
-impl SuperBlock {
+impl DiskSuperBlock {
     /// Initialize a super block
     pub fn initialize(
         &mut self,
@@ -67,6 +71,52 @@ impl SuperBlock {
         self.magic == EFS_MAGIC
     }
 }
+///
+pub struct EfsSuperBlock{
+    inner:SuperBlockInner,
+    fs:Arc<Mutex<EasyFileSystem>>
+}
+
+impl EfsSuperBlock{
+    ///
+    pub fn new(inner:SuperBlockInner)->Self{
+        let fs = EasyFileSystem::open(inner.dev.clone());
+        Self{
+            inner,
+            fs,
+        }
+    }
+    /// Get the root inode of the filesystem
+    pub fn root_inode(self: Arc<Self>) -> Arc<EfsInode> {
+        // acquire efs lock temporarily
+  //      let (block_id, block_offset) = efs.lock().get_disk_inode_pos(0);
+        // release efs lock
+        Arc::new(EfsInode::new(0, self))
+/*         Inode::new(block_id, block_offset, Arc::clone(efs), block_device) */
+    }
+}
+impl SuperBlock for EfsSuperBlock{
+    fn get_inner(&self) -> &SuperBlockInner {
+        &self.inner
+    }
+    /// Allocate a new inode
+    fn alloc_inode(&self) -> u32 {//返回inode的id
+        self.fs.lock().alloc_inode()
+    }
+
+    /// Allocate a data block
+    fn alloc_data(&self) -> u32 {//返回block的块号
+        self.fs.lock().alloc_data()
+    }
+    fn dealloc_data(&self, block_id: u32) {
+        self.fs.lock().dealloc_data(block_id);
+    }
+    fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {
+        self.fs.lock().get_disk_inode_pos(inode_id)
+    }    
+
+}
+/*
 /// Type of a disk inode
 #[derive(Clone, Copy)]
 #[derive(PartialEq)]
@@ -77,7 +127,7 @@ pub enum DiskInodeType {
     Directory,
     ///
     None,
-}
+} */
 
 /// A indirect block
 pub type IndirectBlock = [u32; BLOCK_SZ / 4];

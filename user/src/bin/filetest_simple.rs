@@ -32,6 +32,10 @@ pub fn main() -> i32 {
     chdir(chdir_path);
     unlink(dirname);
     chdir(chdir_path);
+    chdir_path = "/\0";
+    chdir(chdir_path);
+    unlink(dirname);
+    chdir(chdir_path);
     assert_eq!(test_str, core::str::from_utf8(&buffer[..read_len]).unwrap(),);
     println!("file_test passed!");
     0

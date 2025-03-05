@@ -1,7 +1,8 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
+use crate::fs::open_file;
+use crate::mm::{translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
+use vfs_defs::{OpenFlags,UserBuffer};
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     let token = current_user_token();

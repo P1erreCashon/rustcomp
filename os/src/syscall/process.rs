@@ -1,4 +1,4 @@
-use crate::fs::{open_file, OpenFlags,path_to_inode,path_to_father_inode,create_file};
+use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_refmut, translated_str};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
@@ -8,7 +8,7 @@ use crate::timer::get_time_ms;
 use alloc::string::String;
 use alloc::sync::Arc;
 use crate::drivers::BLOCK_DEVICE;
-use easy_fs::EasyFileSystem;
+use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 
 const MODULE_LEVEL:log::Level = log::Level::Info;
 
@@ -100,12 +100,11 @@ pub fn sys_chdir(path: *const u8) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
     println!("chdir_path:{}  path_len:{}",path,path.len());
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-    if let Some(inode) = path_to_inode(&path, efs){
+    if let Some(dentry) = path_to_dentry(&path){
         let task = current_task().unwrap();
         let mut task_inner = task.inner_exclusive_access();
-        task_inner.cwd = inode;
-        for name in task_inner.cwd.ls() {
+        task_inner.cwd = dentry;
+        for name in task_inner.cwd.clone().ls() {
             println!("{}", name);
         }
         0
@@ -121,23 +120,18 @@ pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
     let token = current_user_token();
     let old_path = translated_str(token, old_path);
     let new_path = translated_str(token, new_path);
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-    let mut name = String::new();
-    if let Some(inode) = path_to_inode(&old_path, efs.clone()){
-        let mut inner = inode.lock_inner();
-        if inner.is_dir(){
-            drop(inner);
-            drop(inode);
+    if let Some(dentry) = path_to_dentry(&old_path){
+        if dentry.is_dir(){
+            drop(dentry);
             return -1
         }
-        inner.link_count += 1;
-        if let Some(father) = path_to_father_inode(&new_path, efs.clone(), &mut name){
-            father.link(&mut name,inode.block_id as u32,inode.block_offset)
+        if let Some(new_dentry) = path_to_dentry(&new_path){
+            if dentry.link(&new_dentry).is_err(){
+                return -1;
+            }
+            return 0;
         }
-        else{
-            inner.link_count -= 1;
-            -1
-        }
+        return -1;
     }
     else {
         -1
@@ -149,8 +143,7 @@ pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
 pub fn sys_mkdir(path: *const u8) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-    if let Some(_inode) =create_file(path.as_str(), easy_fs::DiskInodeType::Directory, efs){
+    if let Some(_inode) =create_file(path.as_str(), vfs_defs::DiskInodeType::Directory){
         0
     }
     else {
@@ -164,31 +157,18 @@ pub fn sys_unlink(path: *const u8) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
     println!("unlink:{}",path);
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
     let mut name = String::new();
-    if let Some(father) = path_to_father_inode(&path, efs.clone(),&mut name){
+    if let Some(father) = path_to_father_dentry(&path,&mut name){
         if name.eq(".") || name.eq(".."){
             return -1
         }
-        if let Some(inode) =  father.find(name.as_str()){
-            let mut inner = inode.lock_inner();
-            if inner.link_count < 1{
-                panic!("unlink: nlink < 1");
-            }
-            if inner.is_dir() && !inode.is_dir_empty(&mut inner){
+        if let Some(old) = path_to_dentry(&path){
+            if father.unlink(&old).is_err(){
                 return -1;
             }
-            father.unlink(name.as_str());
-            if inner.is_dir(){
-                father.lock_inner().link_count -= 1;
-            }
-            inner.link_count -= 1;
-            0
+            return 0;
         }
-        else{
-            return -1;
-        }
-
+        return -1;
     }
     else {
         -1

@@ -1,10 +1,13 @@
 use super::{
-    block_cache_sync_all, get_block_cache, Bitmap, BlockDevice, DiskInode, DiskInodeType, Inode,
-    SuperBlock,INODE_MANAGER
+    block_cache_sync_all, get_block_cache, Bitmap, BlockDevice, DiskInode, EfsInode,
+    DiskSuperBlock,INODE_MANAGER
 };
-use crate::BLOCK_SZ;
-use alloc::sync::Arc;
+use crate::{dentry::EfsDentry, layout::EfsSuperBlock, BLOCK_SZ};
+use alloc::{rc::Weak, string::{String, ToString}, sync::Arc};
 use spin::Mutex;
+use vfs_defs::{Dentry, DentryInner, DiskInodeType, FileSystemType, FileSystemTypeInner, Inode, MountFlags, SuperBlock, SuperBlockInner};
+use system_result::{SysError, SysResult};
+use vfs_defs::{File,FileInner};
 ///An easy file system on block
 pub struct EasyFileSystem {
     ///Real device
@@ -59,7 +62,7 @@ impl EasyFileSystem {
         // initialize SuperBlock
         get_block_cache(0, Arc::clone(&block_device)).lock().modify(
             0,
-            |super_block: &mut SuperBlock| {
+            |super_block: &mut DiskSuperBlock| {
                 super_block.initialize(
                     total_blocks,
                     inode_bitmap_blocks,
@@ -86,7 +89,7 @@ impl EasyFileSystem {
         // read SuperBlock
         get_block_cache(0, Arc::clone(&block_device))
             .lock()
-            .read(0, |super_block: &SuperBlock| {
+            .read(0, |super_block: &DiskSuperBlock| {
                 assert!(super_block.is_valid(), "Error loading EFS!");
                 let inode_total_blocks =
                     super_block.inode_bitmap_blocks + super_block.inode_area_blocks;
@@ -102,15 +105,6 @@ impl EasyFileSystem {
                 };
                 Arc::new(Mutex::new(efs))
             })
-    }
-    /// Get the root inode of the filesystem
-    pub fn root_inode(efs: &Arc<Mutex<Self>>) -> Arc<Inode> {
-        let block_device = Arc::clone(&efs.lock().block_device);
-        // acquire efs lock temporarily
-        let (block_id, block_offset) = efs.lock().get_disk_inode_pos(0);
-        // release efs lock
-        INODE_MANAGER.lock().get_inode(block_id, block_offset, efs.clone(), block_device)
-/*         Inode::new(block_id, block_offset, Arc::clone(efs), block_device) */
     }
     /// Get inode by id
     pub fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {//输入inode的id返回inode的位置（磁盘块号+偏移量（单位为字节））
@@ -154,5 +148,86 @@ impl EasyFileSystem {
             &self.block_device,
             (block_id - self.data_area_start_block) as usize,
         )
+    }
+}
+
+///
+pub struct EfsFsType{
+    inner:FileSystemTypeInner
+}
+
+impl  EfsFsType {
+    ///
+    pub fn new()->Self{
+        Self{
+            inner:FileSystemTypeInner::new(String::from("EasyFs")),
+        }
+    }
+}
+
+impl FileSystemType for EfsFsType{
+    fn get_inner(&self)->&FileSystemTypeInner {
+        &self.inner
+    }
+    fn mount(
+        self:Arc<Self>,
+        name:&str,
+        parent:Option<Arc<dyn Dentry>>,
+        _flags: MountFlags,
+        device:Option<Arc<dyn BlockDevice>>)->SysResult<Arc<dyn Dentry>> {
+        let inner = SuperBlockInner::new(device.unwrap(), self.clone());
+        let superblock = Arc::new(EfsSuperBlock::new(inner));
+        let root_inode = EfsSuperBlock::root_inode(superblock.clone());
+        let root_dentry;
+        if parent.is_none(){
+            root_dentry = Arc::new(EfsDentry::new(DentryInner::new(name.to_string(), superblock.clone(), None)));
+        }
+        else{
+            root_dentry = Arc::new(EfsDentry::new(DentryInner::new(name.to_string(), superblock.clone(), Some(Arc::downgrade(&parent.unwrap())))));
+        }
+        root_inode.set_type(DiskInodeType::Directory);
+        root_dentry.set_inode(root_inode);
+        superblock.set_root_dentry(root_dentry.clone());
+        self.add_superblock("/", superblock);
+        Ok(root_dentry)
+        
+    }
+}
+
+///
+pub struct TestFile{
+    readable: bool,
+    writable: bool,
+    inner:FileInner,
+}
+
+impl TestFile{
+    ///
+    pub fn new(readable:bool,writable:bool,inner:FileInner)->Self{
+        Self { readable, writable, inner}
+    }
+}
+
+impl File for TestFile{
+    fn readable(&self) -> bool {
+        self.readable
+    }
+
+    fn writable(&self) -> bool {
+        self.writable
+    }
+
+    fn read_at(&self,offset:usize, buf: &mut [u8]) -> usize {
+        let inode = self.get_dentry().get_inode().unwrap().downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR).unwrap();
+        inode.read_at(offset, buf)
+    }
+
+    fn write_at(&self,offset:usize, buf: &[u8]) -> usize {
+        let inode = self.get_dentry().get_inode().unwrap().downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR).unwrap();
+        inode.write_at(offset, buf)
+    }
+
+    fn get_inner(&self)->&FileInner {
+        &self.inner
     }
 }
