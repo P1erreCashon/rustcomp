@@ -2,9 +2,10 @@ use spin::Mutex;
 use alloc::{collections::VecDeque, sync::Arc};
 use super::up::IntrCell;
 use crate::task::{
-    block_current_and_run_next, block_current_task, current_task, wakeup_task, TaskContext,
+    block_current_and_run_next, block_current_task, current_task, wakeup_task,
     TaskControlBlock,
 };
+use arch::KContext;
 ///
 pub struct Cond{
     ///
@@ -26,7 +27,7 @@ impl Cond{
         }
     }
     ///
-    pub fn wait_no_sched(&self) -> *mut TaskContext {
+    pub fn wait_no_sched(&self) -> *mut KContext {
         let mut inner = self.wait_queue.lock();
         inner.push_back(current_task().unwrap());
         drop(inner);

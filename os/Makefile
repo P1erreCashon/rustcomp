@@ -1,5 +1,33 @@
 # Building
-TARGET := riscv64gc-unknown-none-elf
+ARCH := riscv64
+ifeq ($(ARCH), x86_64)
+  TARGET := x86_64-unknown-none
+  QEMU_EXEC += qemu-system-x86_64 \
+				-machine q35 \
+				-kernel $(KERNEL_ELF) \
+				-cpu IvyBridge-v2
+  BUS := pci
+else ifeq ($(ARCH), riscv64)
+  TARGET := riscv64gc-unknown-none-elf
+  QEMU_EXEC += qemu-system-$(ARCH) \
+				-machine virt \
+				-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+				-kernel $(KERNEL_BIN)
+else ifeq ($(ARCH), aarch64)
+  TARGET := aarch64-unknown-none-softfloat
+  QEMU_EXEC += qemu-system-$(ARCH) \
+				-cpu cortex-a72 \
+				-machine virt \
+				-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+				-kernel $(KERNEL_BIN)
+else ifeq ($(ARCH), loongarch64)
+  TARGET := loongarch64-unknown-none
+  QEMU_EXEC += qemu-system-$(ARCH) -kernel $(KERNEL_ELF)
+  BUS := pci
+else
+  $(error "ARCH" must be one of "x86_64", "riscv64", "aarch64" or "loongarch64")
+endif
+
 MODE := release
 KERNEL_ELF := target/$(TARGET)/$(MODE)/os
 KERNEL_BIN := $(KERNEL_ELF).bin
@@ -48,11 +76,14 @@ fs-img: $(APPS)
 
 $(APPS):
 
+#kernel:
+#	@echo Platform: $(BOARD)
+#	@cp src/linker-$(BOARD).ld src/linker.ld
+#	@cargo build --release
+#	@rm src/linker.ld
 kernel:
 	@echo Platform: $(BOARD)
-	@cp src/linker-$(BOARD).ld src/linker.ld
-	@cargo build --release
-	@rm src/linker.ld
+	@cargo build -Z build-std --release --target $(TARGET)
 
 clean:
 	@cargo clean
@@ -67,28 +98,48 @@ disasm-vim: kernel
 
 run: run-inner
 
-QEMU_ARGS := -machine virt \
-			 -nographic \
-			 -bios $(BOOTLOADER) \
-			 -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
-			 -drive file=$(FS_IMG),if=none,format=raw,id=x0 \
-			 -device virtio-blk-device,drive=x0
+#QEMU_ARGS := -machine virt \
+#			 -nographic \
+#			 -bios $(BOOTLOADER) \
+#			 -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+#			 -drive file=$(FS_IMG),if=none,format=raw,id=x0 \
+#			 -device virtio-blk-device,drive=x0
+QEMU_EXEC += -nographic \
+				-drive file=$(FS_IMG),if=none,format=raw,id=x0 \
+				-smp 1 \
+				-D qemu.log -d in_asm,int,pcall,cpu_reset,guest_errors
 
-QEMU_NAME := qemu-system-riscv64
-qemu-version-check:
-	@sh scripts/qemu-ver-check.sh $(QEMU_NAME)
+#QEMU_NAME := qemu-system-riscv64
+#qemu-version-check:
+#	@sh scripts/qemu-ver-check.sh $(QEMU_NAME)
 
-run-inner: qemu-version-check build
-	@qemu-system-riscv64 $(QEMU_ARGS)
+#run-inner: qemu-version-check build
+#	@qemu-system-riscv64 $(QEMU_ARGS)
 
-debug: qemu-version-check build
-	@tmux new-session -d \
+run-inner: build
+	$(QEMU_EXEC)
+
+#debug: qemu-version-check build
+#	@tmux new-session -d \
 		"qemu-system-riscv64 $(QEMU_ARGS) -s -S" && \
 		tmux split-window -h "riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
 
-gdbserver: qemu-version-check build
-	@qemu-system-riscv64 $(QEMU_ARGS) -s -S
+#gdbserver: qemu-version-check build
+#	@qemu-system-riscv64 $(QEMU_ARGS) -s -S
+
+#gdbclient:
+#	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+
+debug: build
+	@tmux new-session -d \
+		"$(QEMU_EXEC) -s -S" && \
+		tmux split-window -h "gdb -ex 'file $(KERNEL_ELF)' -ex 'target remote localhost:1234'" && \
+		tmux -2 attach-session -d
+
+
+gdbserver: build
+	@$(QEMU_EXEC) -s -S
 
 gdbclient:
 	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'

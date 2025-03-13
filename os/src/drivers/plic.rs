@@ -45,6 +45,7 @@ impl PLIC {
         let id = Self::hart_id_with_priority(hart_id, target_priority);
         (self.base_addr + 0x20_0000 + 0x1000 * id) as *mut u32
     }
+    #[allow(unused)]
     fn claim_comp_ptr_of_hart_with_priority(
         &self,
         hart_id: usize,
@@ -106,10 +107,12 @@ impl PLIC {
         let threshold_ptr = self.threshold_ptr_of_hart_with_priority(hart_id, target_priority);
         unsafe { threshold_ptr.read_volatile() & 7 }
     }
+    #[allow(unused)]
     pub fn claim(&mut self, hart_id: usize, target_priority: IntrTargetPriority) -> u32 {
         let claim_comp_ptr = self.claim_comp_ptr_of_hart_with_priority(hart_id, target_priority);
         unsafe { claim_comp_ptr.read_volatile() }
     }
+    #[allow(unused)]
     pub fn complete(
         &mut self,
         hart_id: usize,

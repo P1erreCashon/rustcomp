@@ -34,6 +34,7 @@ const MODULE_LEVEL:log::Level = log::Level::Info;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+   // println!("syscallid:{}",syscall_id);
     let mut result:isize = 0;
     match syscall_id {
         SYSCALL_CHDIR => {
@@ -61,11 +62,11 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             log_debug!("syscall_close result:{}",result);
         },
         SYSCALL_READ => {
-            result = sys_read(args[0], args[1] as *const u8, args[2]);
+            result = sys_read(args[0], args[1] as *mut u8, args[2]);
             log_debug!("syscall_read result:{}",result);
         },
         SYSCALL_WRITE =>{
-            result = sys_write(args[0], args[1] as *const u8, args[2]);
+            result = sys_write(args[0], args[1] as *mut u8, args[2]);
             log_debug!("syscall_write result:{}",result);
         },
         SYSCALL_EXIT => {
@@ -90,7 +91,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             log_debug!("syscall_fork result:{}",result);
         },
         SYSCALL_EXEC => {
-            result = sys_exec(args[0] as *const u8);
+            result = sys_exec(args[0] as *const u8, args[1] as *const usize);
             log_debug!("syscall_exec result:{}",result);
         },
         SYSCALL_WAITPID => {

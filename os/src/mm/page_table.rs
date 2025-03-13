@@ -1,11 +1,12 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
-use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
-use alloc::string::String;
-use alloc::vec;
-use alloc::vec::Vec;
+//use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use arch::pagetable::PageTable;
+use alloc::string::{String,ToString};
+use _core::str::from_utf8_unchecked;
+use _core::slice;
 use bitflags::*;
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+//const MODULE_LEVEL:log::Level = log::Level::Info;
 
 bitflags! {
     pub struct PTEFlags: u8 {
@@ -19,7 +20,37 @@ bitflags! {
         const D = 1 << 7;
     }
 }
+///
+pub fn translated_byte_buffer(_token: PageTable, ptr: *mut u8, len: usize) -> &'static mut [u8] {
+    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
+}
 
+unsafe fn str_len(ptr: *const u8) -> usize {
+    let mut i = 0;
+    loop {
+        if *ptr.add(i) == 0 {
+            break i;
+        }
+        i += 1;
+    }
+}
+
+/// Load a string from other address spaces into kernel space without an end `\0`.
+pub fn translated_str(_token: PageTable, ptr: *const u8) -> String {
+    unsafe {
+        let len = str_len(ptr);
+        from_utf8_unchecked(slice::from_raw_parts(ptr, len)).to_string()
+    }
+}
+///
+pub fn translated_ref<T>(_token: PageTable, ptr: *const T) -> &'static T {
+    unsafe { ptr.as_ref().unwrap() }
+}
+///
+pub fn translated_refmut<T>(_token: PageTable, ptr: *mut T) -> &'static mut T {
+    unsafe { ptr.as_mut().unwrap() }
+}
+/*
 #[derive(Copy, Clone)]
 #[repr(C)]
 /// page table entry structure
@@ -221,3 +252,4 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .unwrap()
         .get_mut()
 }
+        */

@@ -66,7 +66,7 @@ pub fn list_apps() {
     for app in root_dentry.ls(){
         println!("{}", app);
     }
-    println!("**************/");
+   println!("**************/");
 }
 ///
 pub fn create_file(path:&str,type_:DiskInodeType)->Option<Arc<dyn Dentry>>{

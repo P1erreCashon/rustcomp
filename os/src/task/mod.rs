@@ -14,28 +14,28 @@
 //!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
-mod context;
+//mod context;
 mod manager;
 mod pid;
 mod processor;
-mod switch;
+//mod switch;
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
 use crate::fs::open_file;
-use crate::sbi::shutdown;
 use alloc::sync::Arc;
-pub use context::TaskContext;
+use arch::shutdown;
+use arch::KContext;
+use arch::TrapFrameArgs;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager,wakeup_task};
-use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 use vfs_defs::OpenFlags;
 pub use manager::add_task;
-pub use pid::{pid_alloc, KernelStack, PidAllocator, PidHandle};
+pub use pid::{pid_alloc,  PidAllocator, PidHandle};
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
+    current_task,  current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
 
@@ -45,11 +45,10 @@ const MODULE_LEVEL:log::Level = log::Level::Trace;
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
     let task = take_current_task().unwrap();
-
     log_info!("task:{} suspend",task.getpid());//最好不要显示这个
     // ---- access current TCB exclusively
     let mut task_inner = task.inner_exclusive_access();
-    let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
+    let task_cx_ptr = &mut task_inner.task_cx as *mut KContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
     drop(task_inner);
@@ -60,19 +59,19 @@ pub fn suspend_current_and_run_next() {
     // jump to scheduling cycle
     schedule(task_cx_ptr);
 }
-
+/* 
 /// This function must be followed by a schedule
-pub fn block_current_task() -> *mut TaskContext {
+pub fn block_current_task() -> *mut KContext{
     let task = take_current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     task_inner.task_status = TaskStatus::Blocked;
-    &mut task_inner.task_cx as *mut TaskContext
+    &mut task_inner.task_cx as *mut KContext
 }
 ///
 pub fn block_current_and_run_next() {
     let task_cx_ptr = block_current_task();
     schedule(task_cx_ptr);
-}
+}*/
 
 /// pid of usertests app in make run TEST=1
 pub const IDLE_PID: usize = 0;
@@ -89,11 +88,9 @@ pub fn exit_current_and_run_next(exit_code: i32) {
             exit_code
         );
         if exit_code != 0 {
-            //crate::sbi::shutdown(255); //255 == -1 for err hint
-            shutdown(true)
+            shutdown()
         } else {
-            //crate::sbi::shutdown(0); //0 for success hint
-            shutdown(false)
+            shutdown()
         }
     }
 
@@ -123,7 +120,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     // drop task manually to maintain rc correctly
     drop(task);
     // we do not have to save task context
-    let mut _unused = TaskContext::zero_init();
+    let mut _unused = KContext::blank();
     schedule(&mut _unused as *mut _);
 }
 

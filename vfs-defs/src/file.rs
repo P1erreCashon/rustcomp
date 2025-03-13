@@ -81,31 +81,19 @@ pub trait File: Send + Sync{
         self.get_inner().dentry.clone()
     }
     /// Read file to `buf`
-    fn read(&self,  mut buf: UserBuffer) -> usize{
+    fn read(&self,   buf: &mut [u8]) -> usize{
         let mut offset = self.get_offset();
-        let mut total_read_size = 0usize;
-        for slice in buf.buffers.iter_mut() {
-            
-            let read_size = self.read_at(*offset, *slice);
-            if read_size == 0 {
-                break;
-            }
-            *offset += read_size;
-            total_read_size += read_size;
-        }
-        total_read_size
+        let read_size = self.read_at(*offset, buf);
+        *offset += read_size;
+        read_size
     }    
     /// Write `buf` to file
-    fn write(&self, buf: UserBuffer) -> usize{
+    fn write(&self, buf: &[u8]) -> usize{
         let mut offset = self.get_offset();
-        let mut total_write_size = 0usize;
-        for slice in buf.buffers.iter() {
-            let write_size = self.write_at(*offset, *slice);
-            assert_eq!(write_size, slice.len());
-            *offset += write_size;
-            total_write_size += write_size;
-        }
-        total_write_size
+        let write_size = self.write_at(*offset, buf);
+        assert_eq!(write_size, buf.len());
+        *offset += write_size;
+        write_size
     }
     /// Read all data inside a inode into vector
     fn read_all(&self) -> Vec<u8> {

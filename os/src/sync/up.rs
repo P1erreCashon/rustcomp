@@ -32,6 +32,7 @@ impl<T> UPSafeCell<T> {
         self.inner.borrow_mut()
     }
 }
+/* 
 pub struct IntrNestControl{
     nest_count:usize,
     sie:bool,
@@ -112,4 +113,4 @@ impl<'a, T> DerefMut for IntrMutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.as_mut().unwrap().deref_mut()
     }
-}
+}*/

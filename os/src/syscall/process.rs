@@ -1,16 +1,18 @@
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
-use crate::mm::{translated_refmut, translated_str};
+use crate::mm::{translated_refmut, translated_str,translated_ref};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
     suspend_current_and_run_next,
 };
-use crate::timer::get_time_ms;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+use arch::time::Time;
+use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
@@ -23,7 +25,8 @@ pub fn sys_yield() -> isize {
 }
 
 pub fn sys_get_time() -> isize {
-    get_time_ms() as isize
+//    get_time_ms() as isize
+    Time::now().to_msec() as isize
 }
 
 pub fn sys_getpid() -> isize {
@@ -32,27 +35,40 @@ pub fn sys_getpid() -> isize {
 
 pub fn sys_fork() -> isize {
     let current_task = current_task().unwrap();
-    let new_task = current_task.fork();
+    let new_task = current_task.fork();    
     let new_pid = new_task.pid.0;
     // modify trap context of new_task, because it returns immediately after switching
     let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
     // we do not have to move to next instruction since we have done it before
     // for child process, fork returns 0
-    trap_cx.x[10] = 0;
+    //trap_cx.x[10] = 0;
+    trap_cx[TrapFrameArgs::RET] = 0;
     // add new task to scheduler
     add_task(new_task);
     new_pid as isize
 }
 
-pub fn sys_exec(path: *const u8) -> isize {
+pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
     let token = current_user_token();
     let path = translated_str(token, path);
     log_debug!("exec path={}",path);
+    let mut args_vec: Vec<String> = Vec::new();
+    loop {
+        let arg_str_ptr = *translated_ref(token, args);
+        if arg_str_ptr == 0 {
+            break;
+        }
+        args_vec.push(translated_str(token, arg_str_ptr as *const u8));
+        unsafe {
+            args = args.add(1);
+        }
+    }
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let all_data = app_inode.read_all();
         let task = current_task().unwrap();
-        task.exec(all_data.as_slice());
-        0
+        let argc = args_vec.len();
+        task.exec(all_data.as_slice(),args_vec);
+        argc as isize
     } else {
         -1
     }

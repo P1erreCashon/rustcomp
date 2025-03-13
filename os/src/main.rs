@@ -43,59 +43,150 @@ mod drivers;
 pub mod fs;
 pub mod lang_items;
 pub mod mm;
-pub mod sbi;
 pub mod sync;
 pub mod syscall;
 pub mod task;
-pub mod timer;
-pub mod trap;
+//pub mod trap;
 
 
 use core::arch::global_asm;
 
-use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
-
-global_asm!(include_str!("entry.asm"));
-/// clear BSS segment
-fn clear_bss() {
-    extern "C" {
-        fn sbss();
-        fn ebss();
-    }
-    unsafe {
-        core::slice::from_raw_parts_mut(sbss as usize as *mut u8, ebss as usize - sbss as usize)
-            .fill(0);
-    }
-}
+//use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
+use crate::{
+    syscall::syscall,
+    task::{
+        exit_current_and_run_next,
+        suspend_current_and_run_next, 
+    },
+};
+use arch::api::ArchInterface;
+use arch::{TrapFrame, TrapFrameArgs, TrapType};
+use arch::addr::PhysPage;
+use crate_interface::impl_interface;
+use fdt::node::FdtNode;
 use lazy_static::*;
-use sync::IntrCell;
+//use sync::IntrCell;
+use arch::TrapType::*;
+//lazy_static! {
+    //
+  //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
+  //      IntrCell::new(false);
+//}
 
-lazy_static! {
-    ///
-    pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
-        IntrCell::new(false);
-}
+//extern  "C"{
+//     fn _skernel();
+//     fn stext();
+//     fn etext();
+//     fn srodata();
+//     fn erodata();
+//     fn _sdata();
+//     fn _edata();
+//     fn _load_end();
+//     fn _sbss();
+//     fn _ebss();
+//     fn end();
+//}
 
-#[no_mangle]
-/// the rust entry-point of os
-pub fn rust_main() -> ! {
+///
+pub struct ArchInterfaceImpl;
 
-    clear_bss();
-    
-    logging::init_logger();
-    mm::init();
-    UART.init();    
-    println!("[kernel] Hello, world!");
-//    mm::remap_test();
-    trap::init();
-    trap::enable_timer_interrupt();
-    timer::set_next_trigger();
-    board::device_init();
-    device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
-    vfs::init();
-    fs::list_apps();
-    task::add_initproc();
-    *DEV_NON_BLOCKING_ACCESS.lock() = true;
-    task::run_tasks();
-    panic!("Unreachable in rust_main!");
+#[impl_interface]
+impl ArchInterface for ArchInterfaceImpl {
+    /// Init allocator
+    fn init_allocator(){
+        mm::init_heap();
+    }
+    /// kernel interrupt
+    fn kernel_interrupt(ctx: &mut TrapFrame, trap_type: TrapType){
+        // println!("trap_type @ {:x?} {:#x?}", trap_type, ctx);
+        match trap_type {
+            Breakpoint => return,
+            UserEnvCall => {
+                // jump to next instruction anyway
+                ctx.syscall_ok();
+                let args = ctx.args();
+                // get system call return value
+                // info!("syscall: {}", ctx[TrapFrameArgs::SYSCALL]);
+                let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2]]);
+                // cx is changed during sys_exec, so we have to call it again
+                ctx[TrapFrameArgs::RET] = result as usize;
+            }
+            StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
+                /*
+                println!(
+                    "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
+                    scause.cause(),
+                    stval,
+                    current_trap_cx().sepc,
+                );
+                */
+                println!("err {:x?}", trap_type);
+                exit_current_and_run_next(-1);
+            }
+            IllegalInstruction(_) => {
+                println!("IllegalInstruction!");
+                exit_current_and_run_next(-1);
+            }
+            Time => {   
+                suspend_current_and_run_next();
+            }
+            _ => {
+           //     println!("unsuspended trap type: {:?}", trap_type);
+            }
+        }
+    }
+    /// init log
+    fn init_logging(){
+        logging::init_logger();
+    }
+    /// add a memory region
+    fn add_memory_region(start: usize, end: usize){
+        mm::init_frame_allocator(start, end);
+    }
+    /// kernel main function, entry point.
+    fn main(hartid: usize){
+        if hartid != 0 {
+            return;
+        }
+        //  UART.init();    
+        // println!("[kernel] Hello, world! id:{}",hartid);
+        // println!("_skernel:{:x}",_skernel as usize);
+        // println!("stext:{:x}",stext as usize);
+        // println!("etext:{:x}",etext as usize);
+        // println!("srodata:{:x}",srodata as usize);
+        // println!("erodata:{:x}",erodata as usize);
+        // println!("_sdata:{:x}",_sdata as usize);
+        // println!("_edata:{:x}",_edata as usize);
+        // println!("_load_end:{:x}",_load_end as usize);
+        // println!("_sbss:{:x}",_sbss as usize);
+        // println!("_ebss:{:x}",_ebss as usize);
+        // println!("_end:{:x}",end as usize);
+        arch::init_interrupt();
+        //timer::set_next_trigger();
+    //    board::device_init();
+        device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
+        vfs::init();
+        fs::list_apps();
+        task::add_initproc();
+    //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
+          
+        task::run_tasks();
+        panic!("Unreachable in rust_main!");
+    }
+    /// Alloc a persistent memory page.
+    fn frame_alloc_persist() -> PhysPage{
+        mm::frame_alloc_persist().expect("can't find memory page")
+    }
+    /// Unalloc a persistent memory page
+    fn frame_unalloc(ppn: PhysPage){
+        mm::frame_dealloc(ppn);
+    }
+    /// Preprare drivers.
+    fn prepare_drivers(){
+
+    }
+    /// Try to add device through FdtNode
+    fn try_to_add_device(_fdt_node: &FdtNode){
+
+    }
 }

@@ -6,6 +6,5 @@ pub trait BlockDevice: Send + Sync + Any {
     fn read_block(&self, block_id: usize, buf: &mut [u8]);
     ///Write data from buffer to block
     fn write_block(&self, block_id: usize, buf: &[u8]);
-    ///
-    fn handle_irq(&self);
+ //   fn handle_irq(&self);
 }
