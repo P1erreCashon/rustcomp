@@ -15,6 +15,7 @@ const SYSCALL_LINK: usize = 19;
 const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
+const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
@@ -97,6 +98,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_WAITPID => {
             result = sys_waitpid(args[0] as isize, args[1] as *mut i32);
             log_debug!("syscall_waitpid result:{}",result);
+        },
+        SYSCALL_PIPE => {
+            result = sys_pipe(args[0] as *mut usize);
+            log_debug!("syscall_pipe result:{}",result);
         },
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
