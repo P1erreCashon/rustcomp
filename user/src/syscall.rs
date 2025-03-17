@@ -6,6 +6,7 @@ const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
+const SYSCALL_PIPE: usize = 59; //pipe
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
@@ -93,4 +94,8 @@ pub fn sys_exec(path: &str, args: &[*const u8]) -> isize {
 
 pub fn sys_waitpid(pid: isize, exit_code: *mut i32) -> isize {
     syscall(SYSCALL_WAITPID, [pid as usize, exit_code as usize, 0])
+}
+
+pub fn sys_pipe(pipe: &mut [usize]) -> isize {
+    syscall(SYSCALL_PIPE, [pipe.as_mut_ptr() as usize, 0, 0])
 }

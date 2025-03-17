@@ -1,6 +1,7 @@
 //! File and filesystem-related syscalls
-use crate::fs::open_file;
-use crate::mm::{translated_byte_buffer, translated_str};
+use crate::fs::{open_file};
+use crate::fs::make_pipe;
+use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
 use vfs_defs::{OpenFlags,UserBuffer};
 
@@ -68,5 +69,23 @@ pub fn sys_close(fd: usize) -> isize {
         return -1;
     }
     inner.fd_table[fd].take();
+    0
+}
+
+pub fn sys_pipe(pipe: *mut usize) -> isize {
+    let task = current_task().unwrap();
+    let token = current_user_token();
+    //let mut inner = task.acquire_inner_lock();
+    let mut inner = task.inner_exclusive_access();
+    //自身目录项
+    let self_dentry = inner.cwd.clone();
+    let (pipe_read, pipe_write) = make_pipe(self_dentry); //创建一个管道并获取其读端和写端
+    let read_fd = inner.alloc_fd();
+    inner.fd_table[read_fd] = Some(pipe_read);
+    let write_fd = inner.alloc_fd();
+    inner.fd_table[write_fd] = Some(pipe_write);
+    // 文件描述符写回到应用地址空间
+    *translated_refmut(token, pipe) = read_fd;
+    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
     0
 }
