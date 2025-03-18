@@ -15,10 +15,16 @@ extern crate bitflags;
 use alloc::vec::Vec;
 use buddy_system_allocator::LockedHeap;
 use syscall::*;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
+extern "C" {
+    static HEAP_START: u8;
+    static HEAP_END: u8;
+}
 
-const USER_HEAP_SIZE: usize = 32768;
+pub const USER_HEAP_SIZE: usize = 32768;
 
-static mut HEAP_SPACE: [u8; USER_HEAP_SIZE] = [0; USER_HEAP_SIZE];
+pub static mut HEAP_SPACE: [u8; USER_HEAP_SIZE] = [0; USER_HEAP_SIZE];
 
 #[global_allocator]
 static HEAP: LockedHeap = LockedHeap::empty();
@@ -28,13 +34,22 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
     panic!("Heap allocation error, layout = {:?}", layout);
 }
 
+// 当前堆顶地址
+static HEAP_TOP: AtomicUsize = AtomicUsize::new(0);
+
 #[no_mangle]
 #[link_section = ".text.entry"]
 pub extern "C" fn _start(argc: usize, argv: usize) -> ! {
+    // 初始化堆
+    let heap_start = unsafe { &HEAP_START as *const u8 as usize };
+    let heap_end = unsafe { &HEAP_END as *const u8 as usize };
+    HEAP_TOP.store(heap_start, Ordering::SeqCst);
+
     unsafe {
         HEAP.lock()
-            .init(HEAP_SPACE.as_ptr() as usize, USER_HEAP_SIZE);
+            .init(heap_start, USER_HEAP_SIZE);
     }
+
     let mut v: Vec<&'static str> = Vec::new();
     for i in 0..argc {
         let str_start =
@@ -143,4 +158,8 @@ pub fn sleep(period_ms: usize) {
 
 pub fn pipe(pipe_fd: &mut [usize]) -> isize { 
     sys_pipe(pipe_fd) 
+}
+
+pub fn brk(new_brk: usize) -> isize {
+    sys_brk(new_brk)
 }

@@ -18,6 +18,7 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+//use user_lib::{USER_HEAP_SIZE, HEAP_SPACE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -61,6 +62,7 @@ pub struct TaskControlBlockInner {
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
     pub cwd:Arc<dyn Dentry>,//工作目录
+    pub heap_top: usize,
 }
 fn task_entry() {
     let task = current_task()
@@ -143,6 +145,7 @@ impl TaskControlBlock {
                     ],
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
+                    heap_top: 0, //待修改
                 })
             ,
         };
@@ -241,6 +244,7 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
+                    heap_top: parent_inner.heap_top,
                 })
             ,
         });

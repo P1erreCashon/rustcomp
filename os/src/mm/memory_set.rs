@@ -144,6 +144,22 @@ impl MemorySet {
         self.areas.clear();
     }
 }
+// 动态堆
+impl MemorySet {
+    /// 映射虚拟页号到物理页帧
+    pub fn map_page(&mut self, vpn: VirtPage, ppn: PhysPage, flags: MapPermission, size: MappingSize) {
+        let page_table = Arc::get_mut(&mut self.page_table).unwrap();
+        page_table.map_page(vpn, ppn, flags.into(), size);
+    }
+
+    /// 解除映射虚拟页号
+    pub fn unmap_page(&mut self, vpn: VirtPage) -> Option<(PhysPage, MappingFlags)> {
+        let page_table = Arc::get_mut(&mut self.page_table).unwrap();
+        page_table.unmap_page(vpn);
+        None
+    }
+}
+
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
     pub vpn_range: VPNRange,
