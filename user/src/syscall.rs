@@ -13,6 +13,7 @@ const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
+const SYSCALL_BRK: usize = 214;
 const SYSCALL_FORK: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
@@ -98,4 +99,8 @@ pub fn sys_waitpid(pid: isize, exit_code: *mut i32) -> isize {
 
 pub fn sys_pipe(pipe: &mut [usize]) -> isize {
     syscall(SYSCALL_PIPE, [pipe.as_mut_ptr() as usize, 0, 0])
+}
+
+pub fn sys_brk(new_brk: usize) -> isize {
+    syscall(SYSCALL_BRK, [new_brk as usize, 0, 0])
 }

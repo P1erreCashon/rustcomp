@@ -22,6 +22,7 @@ const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
+const SYSCALL_BRK: usize = 214;
 const SYSCALL_FORK: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
@@ -101,6 +102,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         },
         SYSCALL_PIPE => {
             result = sys_pipe(args[0] as *mut usize);
+            log_debug!("syscall_pipe result:{}",result);
+        },
+        SYSCALL_BRK => {
+            result = sys_brk(args[0]);
             log_debug!("syscall_pipe result:{}",result);
         },
         _ => panic!("Unsupported syscall_id: {}", syscall_id),

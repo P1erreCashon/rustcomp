@@ -2,8 +2,8 @@ use arch::addr::VirtPage;
 
 #[derive(Copy, Clone, Debug)]
 pub struct VPNRange {
-    l: VirtPage,
-    r: VirtPage,
+    pub l: VirtPage,
+    pub r: VirtPage,
 }
 impl VPNRange {
     pub fn new(start: VirtPage, end: VirtPage) -> Self {

@@ -112,7 +112,7 @@ impl ArchInterface for ArchInterfaceImpl {
                 ctx[TrapFrameArgs::RET] = result as usize;
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
-                /*
+                /* 
                 println!(
                     "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
                     scause.cause(),
@@ -169,7 +169,6 @@ impl ArchInterface for ArchInterfaceImpl {
         fs::list_apps();
         task::add_initproc();
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
-          
         task::run_tasks();
         panic!("Unreachable in rust_main!");
     }
