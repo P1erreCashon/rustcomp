@@ -1,9 +1,10 @@
 //!Implementation of [`TaskControlBlock`]
 use super::current_task;
 use super::{pid_alloc, PidHandle};
-use crate::config::KERNEL_STACK_SIZE;
+use crate::config::{KERNEL_STACK_SIZE, USER_HEAP_SIZE, USER_STACK_SIZE};
 use crate::fs::{Stdin, Stdout};
-use crate::mm::{translated_refmut, MemorySet};
+use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
+use arch::addr::VirtAddr;
 use spin::{Mutex, MutexGuard};
 //use crate::trap::{trap_handler, TrapContext};
 use arch::pagetable::PageTable;
@@ -18,7 +19,7 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
-//use user_lib::{USER_HEAP_SIZE, HEAP_SPACE};
+//use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -63,6 +64,8 @@ pub struct TaskControlBlockInner {
 
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
+    pub stack_bottom: usize,
+    //pub heap_area: MapArea,
 }
 fn task_entry() {
     let task = current_task()
@@ -118,7 +121,7 @@ impl TaskControlBlock {
     ///
     pub fn new(elf_data: &[u8]) -> Self {//这个函数似乎只用来创建initproc,所以它的cwd是确定的
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let (memory_set, user_sp, entry_point, heap_top) = MemorySet::from_elf(elf_data);
 
         // alloc a pid and a kernel stack in kernel space
         let pid_handle = pid_alloc();
@@ -145,10 +148,13 @@ impl TaskControlBlock {
                     ],
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
-                    heap_top: 0, //待修改
-                })
-            ,
+                    heap_top: heap_top, //
+                    stack_bottom: user_sp - USER_STACK_SIZE,
+                    }
+                ),
         };
+            
+        
         log_info!("proc {} created",task_control_block.getpid());
         // prepare TrapContext in user space
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
@@ -166,7 +172,10 @@ impl TaskControlBlock {
     ///
     pub fn exec(&self, elf_data: &[u8], args: Vec<String>) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, mut user_sp, entry_point) = MemorySet::from_elf(elf_data);
+        let (memory_set, mut user_sp, entry_point, _heap_bottom) = MemorySet::from_elf(elf_data);
+        self.inner_exclusive_access().heap_top = _heap_bottom;
+        self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
+        //self.inner_exclusive_access().heap_area = MapArea::new(VirtAddr::new(0),VirtAddr::new(0),MapType::Framed,MapPermission::U | MapPermission::R | MapPermission::W |MapPermission::X);
         memory_set.activate();
         // push arguments on user stack
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
@@ -245,6 +254,7 @@ impl TaskControlBlock {
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
                     heap_top: parent_inner.heap_top,
+                    stack_bottom: parent_inner.stack_bottom,
                 })
             ,
         });

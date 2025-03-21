@@ -171,6 +171,14 @@ impl Add<usize> for PhysPage {
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirtPage(pub(crate) usize);
+
+impl VirtPage {
+    /// 获取 `VirtPage` 的内部值
+    pub fn value(&self) -> usize {
+        self.0
+    }
+}
+
 impl From<VirtAddr> for VirtPage {
     fn from(value: VirtAddr) -> Self {
         Self(value.0 >> 12)
