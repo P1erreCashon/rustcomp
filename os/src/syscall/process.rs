@@ -280,7 +280,7 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         0
     }
     else if new_brk == cur_brk {
-        -3
+        -1
     }
     else {// 不考虑不合理的减小
         // 确认需要释放的虚页号
