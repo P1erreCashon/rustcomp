@@ -200,11 +200,10 @@ fn path_to_dirent_(path:&str,
         if to_father && current.len() == 0 {
             return Some(dentry);
         }
-        if let Ok(new_dentry) = dentry.lookup(name){
-            dentry = new_dentry;
-        }
-        else{
-            return None;
+        let r = dentry.lookup(name);
+        match r {
+            Ok(new_dirent)=>dentry = new_dirent,
+            Err(_e)=>{return None;}
         }
         
     }

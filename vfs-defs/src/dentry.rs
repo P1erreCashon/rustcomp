@@ -8,7 +8,7 @@ use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock};
 use spin::{Mutex,MutexGuard};
 use system_result::{SysError,SysResult};
 use super::{File,OpenFlags};
-
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 ///
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DentryState {
@@ -166,6 +166,7 @@ impl dyn Dentry{
             return Ok(child);
         }
         else{
+            log_debug!("lookup:no child:{}",name);
             return Err(SysError::ENOENT);
         }
 

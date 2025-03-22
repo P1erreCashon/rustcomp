@@ -4,6 +4,7 @@ extern crate alloc;
 use alloc::{collections::BTreeMap, string::{String, ToString}, sync::Arc};
 use system_result::{SysResult,SysError};
 use easy_fs::EfsFsType;
+use ext4::Ext4ImplFsType;
 use lazy_static::lazy_static;
 use spin::{Mutex,Once};
 use vfs_defs::{FileSystemType, MountFlags,Dentry};
@@ -13,7 +14,7 @@ lazy_static!{
     pub static ref FILE_SYSTEMS:Mutex<FileSystemManager> =
     Mutex::new(FileSystemManager::new());
 }
-pub const ROOT_FS: &str = "EasyFs";
+pub const ROOT_FS: &str = "Ext4";
 pub static ROOT_DENTRY: Once<Arc<dyn Dentry>> = Once::new();
 pub struct FileSystemManager{
     file_systems:BTreeMap<String,Arc<dyn FileSystemType>>
@@ -46,7 +47,8 @@ impl FileSystemManager{
 
 pub fn register_all_fs(){
     let mut file_systems = FILE_SYSTEMS.lock();
-    file_systems.register_fs("EasyFs".to_string(), Arc::new(EfsFsType::new()));
+    let _ = file_systems.register_fs("EasyFs".to_string(), Arc::new(EfsFsType::new()));
+    let _ = file_systems.register_fs("Ext4".to_string(), Arc::new(Ext4ImplFsType::new()));
 }
 
 pub fn init(){

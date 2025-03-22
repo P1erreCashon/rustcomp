@@ -36,8 +36,8 @@ mod board;
 
 #[macro_use]
 mod console;
-#[macro_use]
-mod logging;
+//#[macro_use]
+//mod logging;
 mod config;
 mod drivers;
 pub mod fs;
@@ -46,9 +46,10 @@ pub mod mm;
 pub mod sync;
 pub mod syscall;
 pub mod task;
-//pub mod trap;
 
-
+#[macro_use]
+extern  crate logger;
+use logger::*;
 use core::arch::global_asm;
 
 //use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
@@ -67,6 +68,7 @@ use fdt::node::FdtNode;
 use lazy_static::*;
 //use sync::IntrCell;
 use arch::TrapType::*;
+use log::Record;
 //lazy_static! {
     //
   //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
@@ -86,7 +88,14 @@ use arch::TrapType::*;
 //     fn _ebss();
 //     fn end();
 //}
+struct LogIfImpl;
 
+#[impl_interface]
+impl LogIf for LogIfImpl{
+    fn print_log(record: &Record){
+        println!("{}: {}", record.level(), record.args());
+    }
+}
 ///
 pub struct ArchInterfaceImpl;
 
@@ -137,7 +146,7 @@ impl ArchInterface for ArchInterfaceImpl {
     }
     /// init log
     fn init_logging(){
-        logging::init_logger();
+        logger::init_logger();
     }
     /// add a memory region
     fn add_memory_region(start: usize, end: usize){
@@ -169,7 +178,6 @@ impl ArchInterface for ArchInterfaceImpl {
         fs::list_apps();
         task::add_initproc();
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
-          
         task::run_tasks();
         panic!("Unreachable in rust_main!");
     }

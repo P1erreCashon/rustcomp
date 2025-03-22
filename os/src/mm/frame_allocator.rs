@@ -7,7 +7,7 @@ use spin::Mutex;
 use core::{fmt::{self, Debug, Formatter},mem::size_of};
 use lazy_static::*;
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// manage a frame which has the same lifecycle as the tracker
 pub struct FrameTracker {

@@ -50,7 +50,7 @@ impl Dentry for EfsDentry{
             let child_dir = self.get_child(name).unwrap();
             let efs_child_inode = child_inode.downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR)?;
             efs_child_inode.load_from_disk();
-            if(efs_child_inode.is_dir()){
+            if efs_child_inode.is_dir(){
                 let sub_child_dir_names = efs_child_inode.ls();
                 for  sub_child_dir_name in sub_child_dir_names{
                     let sub_child_dir = child_dir.clone().concrete_new_child(sub_child_dir_name.as_str());

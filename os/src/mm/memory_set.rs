@@ -5,6 +5,7 @@ use super::{frame_alloc, FrameTracker};
 use super::vpn_range::VPNRange;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
+use arch::USER_VADDR_END;
 use crate::config::{PAGE_SIZE, USER_STACK_SIZE};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;

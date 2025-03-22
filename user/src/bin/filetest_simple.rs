@@ -4,7 +4,7 @@
 #[macro_use]
 extern crate user_lib;
 
-use user_lib::{close, open, read, write,chdir,mkdir,unlink, OpenFlags};
+use user_lib::{chdir, close, link, mkdir, open, read, unlink, write, OpenFlags};
 
 #[no_mangle]
 pub fn main() -> i32 {
@@ -34,6 +34,9 @@ pub fn main() -> i32 {
     chdir(chdir_path);
     chdir_path = "/\0";
     chdir(chdir_path);
+    if link("hello_world\0", "lwq\0") == -1{
+        println!("link failed!");
+    }
     unlink(dirname);
     chdir(chdir_path);
     assert_eq!(test_str, core::str::from_utf8(&buffer[..read_len]).unwrap(),);

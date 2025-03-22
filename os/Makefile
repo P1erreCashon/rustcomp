@@ -60,6 +60,8 @@ TEST ?=
 
 build: env $(KERNEL_BIN) fs-img 
 
+testbuild: env $(KERNEL_BIN) test-fs-img
+
 env:
 	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
 	cargo install cargo-binutils
@@ -72,7 +74,20 @@ $(KERNEL_BIN): kernel
 fs-img: $(APPS)
 	@cd ../user && make build TEST=$(TEST)
 	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=256
+	@mkfs.ext4 $(FS_IMG)
+	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../ext4-fs-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+
+test-fs-img: $(APPS)
+	@cd ../user && make build TEST=$(TEST)
+	@rm -f $(FS_IMG)
+	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=256
+	@mkfs.ext4 $(FS_IMG)
+#	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 
 $(APPS):
 
@@ -98,6 +113,8 @@ disasm-vim: kernel
 
 run: run-inner
 
+test: test-run-inner
+
 #QEMU_ARGS := -machine virt \
 #			 -nographic \
 #			 -bios $(BOOTLOADER) \
@@ -117,6 +134,9 @@ QEMU_EXEC += -nographic \
 #	@qemu-system-riscv64 $(QEMU_ARGS)
 
 run-inner: build
+	$(QEMU_EXEC)
+
+test-run-inner: testbuild
 	$(QEMU_EXEC)
 
 #debug: qemu-version-check build
@@ -144,4 +164,4 @@ gdbserver: build
 gdbclient:
 	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
 
-.PHONY: build env kernel clean disasm disasm-vim run-inner fs-img gdbserver gdbclient qemu-version-check
+.PHONY: build env kernel clean disasm disasm-vim run-inner fs-img gdbserver gdbclient qemu-version-check test-run-inner testbuild test-fs-img

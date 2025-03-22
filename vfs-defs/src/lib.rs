@@ -7,7 +7,8 @@ mod dentry;
 mod superblock;
 mod filesystemtype;
 mod file;
-
+#[macro_use]
+extern crate logger;
 pub use filesystemtype::{FileSystemType,FileSystemTypeInner,MountFlags};
 pub use dentry::{Dentry,DentryInner,DentryState};
 pub use superblock::{SuperBlock,SuperBlockInner};

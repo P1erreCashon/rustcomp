@@ -1,0 +1,14 @@
+[package]
+name = "ext4"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ext4_rs = { git = "https://github.com/yuoo655/ext4_rs.git", rev = "4d53794" }
+device = { path = "../device" }
+buffer = { path = "../buffer" }
+logger = { path = "../logger" }
+vfs-defs = { path = "../vfs-defs" }
+system-result = { path = "../system-result" }
+spin = "0.7.0"
+log = "0.4"
