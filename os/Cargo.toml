@@ -25,6 +25,7 @@ device = { path = "../device" }
 crate_interface = { git = "https://github.com/Byte-OS/crate_interface.git" }
 arch = { path = "arch", features = ["kcontext"]}
 fdt = "0.1.5"
+
 logger = { path = "../logger" }
 
 [profile.release]
