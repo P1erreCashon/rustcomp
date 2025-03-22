@@ -12,7 +12,7 @@ use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
@@ -79,7 +79,7 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     let task = current_task().unwrap();
     // find a child process
-    log::debug!("waitpid pid={}",pid);
+    log_debug!("waitpid pid={}",pid);
     // ---- access current PCB exclusively
     let mut inner = task.inner_exclusive_access();
     if !inner
@@ -141,8 +141,15 @@ pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
             drop(dentry);
             return -1
         }
-        if let Some(new_dentry) = path_to_dentry(&new_path){
-            if dentry.link(&new_dentry).is_err(){
+        let mut name = String::new();
+        if let Some(father_dentry) = path_to_father_dentry(&new_path,&mut name){
+            let r = father_dentry.lookup(name.as_str());
+            if r.is_ok(){//EEXIST
+                return -1;
+            }
+            let new_dentry = father_dentry.find_or_create(name.as_str(), DiskInodeType::File);
+            if let Err(e) = dentry.link(&new_dentry){
+                println!("link err: {:?}",e);
                 return -1;
             }
             return 0;

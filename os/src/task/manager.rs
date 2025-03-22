@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use lazy_static::*;
 use spin::Mutex;
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {

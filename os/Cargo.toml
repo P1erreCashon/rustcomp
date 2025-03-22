@@ -14,6 +14,7 @@ bitflags = "1.2.1"
 xmas-elf = "0.7.0"
 virtio-drivers = { git = "https://github.com/rcore-os/virtio-drivers", rev = "61ece50" }
 easy-fs = { path = "../easy-fs" }
+ext4 = { path = "../ext4" }
 log = "0.4"
 sbi-rt = { version = "0.0.2", features = ["legacy"] }
 spin = "0.7.0"
@@ -25,6 +26,8 @@ crate_interface = { git = "https://github.com/Byte-OS/crate_interface.git" }
 arch = { path = "arch", features = ["kcontext"]}
 fdt = "0.1.5"
 # user_lib = {path="../user"}
+
+logger = { path = "../logger" }
 
 [profile.release]
 debug = true

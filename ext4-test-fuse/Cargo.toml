@@ -1,0 +1,18 @@
+[package]
+name = "ext4-test-fuse"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = "2.33.3"
+ext4 = { path = "../ext4" }
+rand = "0.8.0"
+vfs-defs = { path = "../vfs-defs" }
+vfs = { path = "../vfs" }
+device = { path = "../device" }
+buffer = { path = "../buffer" }
+system-result = { path = "../system-result" }
+ext4_rs = { git = "https://github.com/yuoo655/ext4_rs.git", rev = "4d53794" }
+logger = { path = "../logger" }
+log = "0.4"
+crate_interface = { git = "https://github.com/Byte-OS/crate_interface.git" }
