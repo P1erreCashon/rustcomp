@@ -10,7 +10,7 @@ const PAGE_SIZE: isize= 4096;
 #[no_mangle]
 pub fn main() -> i32 {
     let init_brk = brk(0);
-    let size: isize = 5000;
+    let size: isize = 6000;
     for i in 1..5 {
         
         println!("第{}轮扩充({}):", i, size/PAGE_SIZE + 1);

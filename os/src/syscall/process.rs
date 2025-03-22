@@ -11,6 +11,10 @@ use arch::time::Time;
 use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
+use crate::config::PAGE_SIZE;
+use arch::addr::{PhysPage, VirtAddr, VirtPage};
+use crate::mm::MapPermission;
+use arch::pagetable::MappingSize;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -197,4 +201,106 @@ pub fn sys_unlink(path: *const u8) -> isize {
         -1
     }
 
+}
+
+pub fn sys_brk(new_brk:  usize) -> isize {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    let cur_brk = task_inner.heap_top;
+    //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
+    if new_brk == 0 {
+        return cur_brk as isize;
+    }
+    
+    if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
+        task_inner.heap_top = new_brk;
+        return 0;
+    }
+    
+    let mut need_align: bool = false;
+    // new_brk->align to 4K
+    let num = new_brk / PAGE_SIZE;
+    if num*PAGE_SIZE < new_brk {
+        //align_brk = (num + 1)*PAGE_SIZE;
+        need_align = true;
+    }
+
+    if new_brk > cur_brk {
+        let user_stack_bottom = task_inner.stack_bottom;
+        
+        if new_brk >= user_stack_bottom { 
+            return -1;
+        }
+        // 确认新增虚拟页号范围
+        //let cur_page = (cur_brk + PAGE_SIZE - 1) / PAGE_SIZE;
+        //let new_page = (new_brk + PAGE_SIZE - 1) / PAGE_SIZE;
+        let cur_page = task_inner.max_data_addr / PAGE_SIZE;
+        let mut new_page = num;
+        if need_align {
+            new_page += 1;
+        }
+        let page_count = new_page - cur_page;
+        //println!("{} - {}", new_page, cur_page);
+        let mut all_vpn = Vec::<VirtPage>::new();
+        let mut all_ppn = Vec::<PhysPage>::new();
+        if page_count > 0 {
+            // 申请等量的物理页帧
+            /*let frames = frame_alloc_more(page_count);
+            if frames.is_none() {
+                return -1; // 物理内存不足
+            }
+            let frames = frames.unwrap();*/
+
+            // 在 memory_set 中映射新增的虚拟页号到物理页帧,如(31,32)->(31,30.9->31) 实际申请一页
+            //let _start_va: VirtAddr = (cur_brk).into();
+            //let _end_va: VirtAddr = (new_brk - PAGE_SIZE -1).into();
+            
+            for i in 0..page_count {
+                let vpn = VirtPage::from(cur_page + i);
+                //let ppn = frames[i].ppn;
+                let mp = MapPermission::R | MapPermission::W | MapPermission::U;
+                let ppn = task_inner.memory_set.map_page(vpn, mp, MappingSize::Page4KB);
+                all_vpn.push(vpn);
+                all_ppn.push(ppn);
+                //println!("vpn:{} ppn:{}",vpn,ppn);
+                /*task_inner.memory_set.map_page(
+                    vpn,
+                    ppn,
+                    MapPermission::R | MapPermission::W | MapPermission::U,
+                    MappingSize::Page4KB,
+                );*/
+            }
+        }
+        task_inner.max_data_addr += PAGE_SIZE*page_count;
+        //println!("max_data_addr = {}", task_inner.max_data_addr);
+        task_inner.heap_top = new_brk;
+        /*for (vpn, ppn) in all_vpn.iter().zip(all_ppn.iter()) {
+            println!("VPN: {:?}, PPN: {:?}", vpn, ppn);
+        }*/
+        0
+    }
+    else if new_brk == cur_brk {
+        -3
+    }
+    else {// 不考虑不合理的减小
+        // 确认需要释放的虚页号
+        /*let cur_page = cur_brk / PAGE_SIZE;
+        
+        let new_page = new_brk / PAGE_SIZE ; 
+        let page_count = cur_page - new_page;
+        
+        if page_count > 0 {
+            // 解除映射并释放物理页帧
+            for i in 1..(page_count + 1) {
+                let vpn = VirtPage::from(cur_page - i);
+                task_inner.memory_set.unmap_page(vpn);
+                    //frame_dealloc(ppn);
+            }
+        }*/
+        // 不释放
+        // new_brk 应当大于数据段起始 未做判断
+        task_inner.heap_top = new_brk;
+        
+        0
+    }
 }

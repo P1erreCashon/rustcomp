@@ -65,7 +65,7 @@ pub struct TaskControlBlockInner {
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
     pub stack_bottom: usize,
-    //pub heap_area: MapArea,
+    pub max_data_addr: usize,
 }
 fn task_entry() {
     let task = current_task()
@@ -150,6 +150,7 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
+                    max_data_addr: heap_top,
                     }
                 ),
         };
@@ -172,10 +173,11 @@ impl TaskControlBlock {
     ///
     pub fn exec(&self, elf_data: &[u8], args: Vec<String>) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, mut user_sp, entry_point, _heap_bottom) = MemorySet::from_elf(elf_data);
-        self.inner_exclusive_access().heap_top = _heap_bottom;
+        let (memory_set, mut user_sp, entry_point, heap_top) = MemorySet::from_elf(elf_data);
+        self.inner_exclusive_access().heap_top = heap_top;
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
-        //self.inner_exclusive_access().heap_area = MapArea::new(VirtAddr::new(0),VirtAddr::new(0),MapType::Framed,MapPermission::U | MapPermission::R | MapPermission::W |MapPermission::X);
+        self.inner_exclusive_access().max_data_addr = heap_top;
+        
         memory_set.activate();
         // push arguments on user stack
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
@@ -255,6 +257,7 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
+                    max_data_addr: parent_inner.max_data_addr,
                 })
             ,
         });
