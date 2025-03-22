@@ -119,3 +119,39 @@ pub fn sys_getcwd(cwd: *mut u8, size: usize) -> isize {
     bytes.len() as isize
 }
 
+//int fd;
+//int ret = syscall(SYS_dup, fd);
+pub fn sys_dup(fd: usize) -> isize {
+    /*if fd < 0 {
+        return -1;
+    }*/
+    let binding = current_task().unwrap();
+    let mut task_inner = binding.inner_exclusive_access();
+    let fd_table = &mut task_inner.fd_table;
+    // 检查文件描述符的有效性
+    if fd >= fd_table.len() {
+        return -1; // EBADF: 无效的文件描述符
+    }
+    // 获取要复制的文件对象
+    if let Some(file) = &fd_table[fd] {
+        // 找到第一个空闲的文件描述符位置
+        let mut new_fd = fd_table.len();
+        for (i, entry) in fd_table.iter().enumerate() {
+            if entry.is_none() {
+                new_fd = i;
+                break;
+            }
+        }
+        if new_fd == fd_table.len() {
+            return -1;
+        }
+        // 复制文件对象的引用
+        fd_table[new_fd] = Some(file.clone());
+        // 返回新的文件描述符
+        new_fd as isize
+    }
+    else {
+        return -1;
+    }
+}
+

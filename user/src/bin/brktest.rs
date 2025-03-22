@@ -4,6 +4,7 @@
 #[macro_use]
 extern crate user_lib;
 use user_lib::brk;
+use user_lib::dup;
 use core::convert::TryInto;
 
 const PAGE_SIZE: isize= 4096;
@@ -33,6 +34,10 @@ pub fn main() -> i32 {
     }
     let latest_brk = brk(0);
     assert_eq!(init_brk, latest_brk);
+
+    let fd = dup(1);
+    assert!(fd >= 0);
+    println!("fd = {}",fd);
     
     println!("brktest passed!");
     0
