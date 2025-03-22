@@ -10,6 +10,7 @@
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
 const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_GETCWD: usize =17;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_MKDIR: usize = 20;
@@ -108,6 +109,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             result = sys_brk(args[0]);
             log_debug!("syscall_pipe result:{}",result);
         },
+        SYSCALL_GETCWD => {
+            result = sys_getcwd(args[0] as *mut u8, args[1] as usize);
+            log_debug!("syscall_getcwd result:{}",result);
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     result

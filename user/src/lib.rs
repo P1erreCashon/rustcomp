@@ -163,3 +163,7 @@ pub fn pipe(pipe_fd: &mut [usize]) -> isize {
 pub fn brk(new_brk: usize) -> isize {
     sys_brk(new_brk)
 }
+
+pub fn getcwd(buf: *mut u8, size: usize) -> isize {
+    sys_getcwd(buf, size)
+}

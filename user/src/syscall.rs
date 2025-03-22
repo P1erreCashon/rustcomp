@@ -1,6 +1,7 @@
 use core::arch::asm;
 
 const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_GETCWD: usize =17;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_MKDIR: usize = 20;
@@ -103,4 +104,8 @@ pub fn sys_pipe(pipe: &mut [usize]) -> isize {
 
 pub fn sys_brk(new_brk: usize) -> isize {
     syscall(SYSCALL_BRK, [new_brk as usize, 0, 0])
+}
+
+pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
+    syscall(SYSCALL_GETCWD, [buf as usize, size, 0])
 }

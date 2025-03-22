@@ -3,6 +3,7 @@ use crate::fs::open_file;
 use crate::fs::make_pipe;
 use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
+use alloc::string::String;
 use vfs_defs::{OpenFlags,UserBuffer};
 //
 use crate::mm::frame_alloc_more;
@@ -12,6 +13,7 @@ use crate::mm::frame_dealloc;
 use crate::mm::MapType;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::ptr;
 
 pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
     let token = current_user_token();
@@ -96,5 +98,24 @@ pub fn sys_pipe(pipe: *mut usize) -> isize {
     *translated_refmut(token, pipe) = read_fd;
     *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
     0
+}
+
+//char *buf, size_t size;
+//long ret = syscall(SYS_getcwd, buf, size);
+pub fn sys_getcwd(cwd: *mut u8, size: usize) -> isize {
+    if size <= 0 {
+        return -1;
+    }
+    let binding = current_task().unwrap();
+    let task_inner = binding.inner_exclusive_access();
+    let current_path = task_inner.cwd.path();
+    if current_path.len() >= size {
+        return -2;
+    }
+    let bytes = current_path.as_bytes();
+    unsafe {
+        ptr::copy_nonoverlapping(bytes.as_ptr(), cwd, bytes.len());
+    }
+    bytes.len() as isize
 }
 
