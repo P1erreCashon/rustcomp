@@ -122,18 +122,17 @@ pub fn sys_getcwd(cwd: *mut u8, size: usize) -> isize {
 //int fd;
 //int ret = syscall(SYS_dup, fd);
 pub fn sys_dup(fd: usize) -> isize {
-    /*if fd < 0 {
-        return -1;
-    }*/
     let binding = current_task().unwrap();
     let mut task_inner = binding.inner_exclusive_access();
     let fd_table = &mut task_inner.fd_table;
+
     // 检查文件描述符的有效性
     if fd >= fd_table.len() {
         return -1; // EBADF: 无效的文件描述符
     }
+
     // 获取要复制的文件对象
-    if let Some(file) = &fd_table[fd] {
+    if let Some(file) = fd_table[fd].clone() { // 使用 clone 提前获取文件对象
         // 找到第一个空闲的文件描述符位置
         let mut new_fd = fd_table.len();
         for (i, entry) in fd_table.iter().enumerate() {
@@ -142,15 +141,18 @@ pub fn sys_dup(fd: usize) -> isize {
                 break;
             }
         }
+
+        // 如果没有找到空闲位置，扩展 fd_table
         if new_fd == fd_table.len() {
-            return -1;
+            fd_table.push(None);
         }
-        // 复制文件对象的引用
-        fd_table[new_fd] = Some(file.clone());
+
+        // 复制文件对象的引用到新的位置
+        fd_table[new_fd] = Some(file);
+
         // 返回新的文件描述符
         new_fd as isize
-    }
-    else {
+    } else {
         return -1;
     }
 }

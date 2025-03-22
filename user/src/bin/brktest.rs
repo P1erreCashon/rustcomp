@@ -38,6 +38,9 @@ pub fn main() -> i32 {
     let fd = dup(1);
     assert!(fd >= 0);
     println!("fd = {}",fd);
+    let fd = dup(1);
+    assert!(fd >= 0);
+    println!("fd = {}",fd);
     
     println!("brktest passed!");
     0
