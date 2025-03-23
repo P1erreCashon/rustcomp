@@ -186,6 +186,11 @@ pub fn sys_dup2(old: usize, new: usize) -> isize {
                 panic!("extend fd_table error!, len={}",fd_table.len());
             }
         }
+        else if fd_table[new].is_some() {
+            // new位置有效，需要关闭文件
+            //sys_close(new); 被锁阻塞
+            fd_table[new].take();
+        }
 
         // 复制文件对象的引用到新的位置
         fd_table[new] = Some(file);
