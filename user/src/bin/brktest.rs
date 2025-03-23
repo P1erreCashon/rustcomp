@@ -5,7 +5,10 @@
 extern crate user_lib;
 use user_lib::brk;
 use user_lib::dup;
+use user_lib::getcwd;
+use user_lib::dup2;
 use core::convert::TryInto;
+use core::ffi::CStr;
 
 const PAGE_SIZE: isize= 4096;
 #[no_mangle]
@@ -34,14 +37,53 @@ pub fn main() -> i32 {
     }
     let latest_brk = brk(0);
     assert_eq!(init_brk, latest_brk);
-
-    let fd = dup(1);
-    assert!(fd >= 0);
-    println!("fd = {}",fd);
-    let fd = dup(1);
-    assert!(fd >= 0);
-    println!("fd = {}",fd);
-    
     println!("brktest passed!");
+
+    //测试getcwd
+    {
+        const s:usize=10;
+        let mut buf: [u8;s]=[0;s];
+        let Result= getcwd(buf.as_mut_ptr(), s);
+        unsafe {
+            // 将数组转换为可变指针
+            let result = getcwd(buf.as_mut_ptr(), s);
+ 
+            if result !=-1 {
+            // 从缓冲区指针创建一个 CStr
+            let c_str = CStr::from_ptr(buf.as_ptr() as *const i8);
+ 
+            // 尝试将 CStr 转换为 Rust 的字符串切片
+            match c_str.to_str() {
+                Ok(path) => println!("Current directory: {}", path),
+                Err(e) => println!("Error decoding path: {}", e),
+            }
+            } else {
+            println!("Error getting current working directory");
+            }
+        }
+    }
+    //测试dup
+    {
+        let fd = dup(1);
+        assert!(fd >= 0);
+        println!("fd = {}",fd);
+        let fd = dup(1);
+        assert!(fd >= 0);
+        println!("fd = {}",fd);
+    }
+    //测试dup2
+    {
+        // 0 1 2 3 4 已存在
+        let fd = dup2(1,1);
+        assert!(fd == 1);
+        println!("fd = {}",fd);
+        let fd = dup2(1, 3);
+        assert!(fd == 3);
+        println!("fd = {}",fd);
+        let fd = dup2(1, 6);
+        assert!(fd == 6);
+        println!("fd = {}",fd);
+    }
+    
     0
 }

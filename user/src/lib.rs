@@ -171,3 +171,7 @@ pub fn getcwd(buf: *mut u8, size: usize) -> isize {
 pub fn dup(fd: usize) -> isize {
     sys_dup(fd)
 }
+
+pub fn dup2(old: usize, new: usize) -> isize {
+    sys_dup2(old, new)
+}

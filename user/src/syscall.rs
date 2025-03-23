@@ -6,6 +6,7 @@ const SYSCALL_LINK: usize = 19;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_DUP: usize = 23;
+const SYSCALLDUP2: usize = 25;//?
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59; //pipe
@@ -113,4 +114,8 @@ pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
 
 pub fn sys_dup(fd: usize) -> isize {
     syscall(SYSCALL_DUP, [fd, 0, 0])
+}
+
+pub fn sys_dup2(old: usize, new: usize) -> isize {
+    syscall(SYSCALLDUP2, [old, new, 0])
 }

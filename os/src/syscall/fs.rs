@@ -157,3 +157,42 @@ pub fn sys_dup(fd: usize) -> isize {
     }
 }
 
+//int old, int new;
+//int ret = syscall(SYS_dup2, old, new);
+pub fn sys_dup2(old: usize, new: usize) -> isize {
+    /*if old<0 || new<0 {
+        return -1;
+    }*/
+    if old == new {
+        return new as isize;
+    }
+    let binding = current_task().unwrap();
+    let mut task_inner = binding.inner_exclusive_access();
+    let fd_table = &mut task_inner.fd_table;
+
+    // 检查文件描述符的有效性
+    if old >= fd_table.len() {
+        return -1; // EBADF: 无效的文件描述符
+    }
+    // 获取要复制的文件对象
+    if let Some(file) = fd_table[old].clone() { // 使用 clone 提前获取文件对象
+        
+        if new >= fd_table.len() {
+            let cnt = new - fd_table.len() + 1;
+            for _ in 0..cnt {
+                fd_table.push(None);
+            }
+            if new != fd_table.len()-1 {
+                panic!("extend fd_table error!, len={}",fd_table.len());
+            }
+        }
+
+        // 复制文件对象的引用到新的位置
+        fd_table[new] = Some(file);
+
+        // 返回新的文件描述符
+        new as isize
+    } else {
+        return -1;
+    }
+}

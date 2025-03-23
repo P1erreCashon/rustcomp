@@ -15,6 +15,8 @@ const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_DUP: usize = 23;
+//const SYSCALL_DUP3: usize =  24;//?
+const SYSCALL_DUP2: usize =  25;//?
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
@@ -116,7 +118,11 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         }
         SYSCALL_DUP => {
             result = sys_dup(args[0] as usize);
-            log_debug!("syscall_getcwd result:{}",result);
+            log_debug!("syscall_dup result:{}",result);
+        }
+        SYSCALL_DUP2 => {
+            result = sys_dup2(args[0] as usize, args[1] as usize);
+            log_debug!("syscall_dup2 result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
