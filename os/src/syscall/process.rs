@@ -304,3 +304,9 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         0
     }
 }
+
+pub fn sys_times() -> isize {
+    let binding = current_task().unwrap();
+    let taskinner = binding.inner_exclusive_access();
+    (Time::now().to_msec() - taskinner.cur_time) as isize
+}

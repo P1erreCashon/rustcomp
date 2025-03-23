@@ -19,6 +19,7 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
@@ -66,6 +67,7 @@ pub struct TaskControlBlockInner {
     pub heap_top: usize,
     pub stack_bottom: usize,
     pub max_data_addr: usize,
+    pub cur_time: usize,
 }
 fn task_entry() {
     let task = current_task()
@@ -151,6 +153,7 @@ impl TaskControlBlock {
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
+                    cur_time: Time::now().to_msec() as usize,
                     }
                 ),
         };
@@ -177,7 +180,7 @@ impl TaskControlBlock {
         self.inner_exclusive_access().heap_top = heap_top;
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
         self.inner_exclusive_access().max_data_addr = heap_top;
-        
+        self.inner_exclusive_access().cur_time= Time::now().to_msec() as usize;
         memory_set.activate();
         // push arguments on user stack
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
@@ -258,6 +261,7 @@ impl TaskControlBlock {
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
+                    cur_time: Time::now().to_msec() as usize,
                 })
             ,
         });

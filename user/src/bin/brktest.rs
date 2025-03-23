@@ -7,6 +7,8 @@ use user_lib::brk;
 use user_lib::dup;
 use user_lib::getcwd;
 use user_lib::dup3;
+use user_lib::get_time;
+use user_lib::times;
 use core::convert::TryInto;
 use core::ffi::CStr;
 
@@ -84,6 +86,9 @@ pub fn main() -> i32 {
         assert!(fd == 6);
         println!("fd = {}",fd);
     }
-    
+    //测试times 153
+    for _ in 0..5 {
+        println!("proc_times={}, sys_times={}", times(), get_time());
+    }
     0
 }

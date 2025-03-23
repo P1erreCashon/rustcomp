@@ -24,6 +24,7 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_TIMES: usize = 153;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -123,6 +124,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_DUP3 => {
             result = sys_dup3(args[0] as usize, args[1] as usize, 0);
             log_debug!("syscall_dup3 result:{}",result);
+        }
+        SYSCALL_TIMES => {
+            result = sys_times();
+            log_debug!("syscall_times result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

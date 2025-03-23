@@ -175,3 +175,7 @@ pub fn dup(fd: usize) -> isize {
 pub fn dup3(old: usize, new: usize) -> isize {
     sys_dup3(old, new)
 }
+
+pub fn times() -> isize {
+    sys_times()
+}

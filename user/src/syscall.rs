@@ -14,6 +14,7 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_TIMES: usize =153;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -118,4 +119,8 @@ pub fn sys_dup(fd: usize) -> isize {
 
 pub fn sys_dup3(old: usize, new: usize) -> isize {
     syscall(SYSCALLDUP3, [old, new, 0])
+}
+
+pub fn sys_times() -> isize {
+    syscall(SYSCALL_TIMES, [0, 0, 0])
 }
