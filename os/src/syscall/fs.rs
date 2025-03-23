@@ -158,8 +158,8 @@ pub fn sys_dup(fd: usize) -> isize {
 }
 
 //int old, int new;
-//int ret = syscall(SYS_dup2, old, new);
-pub fn sys_dup2(old: usize, new: usize) -> isize {
+//int ret = syscall(SYS_dup3, old, new, 0);
+pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> isize {
     /*if old<0 || new<0 {
         return -1;
     }*/

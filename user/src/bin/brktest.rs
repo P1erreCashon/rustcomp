@@ -6,7 +6,7 @@ extern crate user_lib;
 use user_lib::brk;
 use user_lib::dup;
 use user_lib::getcwd;
-use user_lib::dup2;
+use user_lib::dup3;
 use core::convert::TryInto;
 use core::ffi::CStr;
 
@@ -74,13 +74,13 @@ pub fn main() -> i32 {
     //测试dup2
     {
         // 0 1 2 3 4 已存在
-        let fd = dup2(1,1);
+        let fd = dup3(1,1);
         assert!(fd == 1);
         println!("fd = {}",fd);
-        let fd = dup2(1, 3);
+        let fd = dup3(1, 3);
         assert!(fd == 3);
         println!("fd = {}",fd);
-        let fd = dup2(1, 6);
+        let fd = dup3(1, 6);
         assert!(fd == 6);
         println!("fd = {}",fd);
     }

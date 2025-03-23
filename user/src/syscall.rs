@@ -6,10 +6,10 @@ const SYSCALL_LINK: usize = 19;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_MKDIR: usize = 20;
 const SYSCALL_DUP: usize = 23;
-const SYSCALLDUP2: usize = 25;//?
+const SYSCALLDUP3: usize = 24;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
-const SYSCALL_PIPE: usize = 59; //pipe
+const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
@@ -116,6 +116,6 @@ pub fn sys_dup(fd: usize) -> isize {
     syscall(SYSCALL_DUP, [fd, 0, 0])
 }
 
-pub fn sys_dup2(old: usize, new: usize) -> isize {
-    syscall(SYSCALLDUP2, [old, new, 0])
+pub fn sys_dup3(old: usize, new: usize) -> isize {
+    syscall(SYSCALLDUP3, [old, new, 0])
 }
