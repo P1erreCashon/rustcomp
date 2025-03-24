@@ -100,6 +100,17 @@ fn easy_fs_pack() -> std::io::Result<()> {
             name_with_ext
         })
         .collect();
+   
+    {   let mnt = root_dentry.create("mnt",DiskInodeType::Directory).unwrap();
+        let mut host_file = File::open(format!("{}{}", src_path, "mnt/test_mount")).unwrap();
+        let mut all_data: Vec<u8> = Vec::new();
+        host_file.read_to_end(&mut all_data).unwrap();
+        // create a file in ext4
+        let den =mnt.create("test_mount",DiskInodeType::File).unwrap();
+        let inode = den.get_inode().unwrap().get_meta().ino;
+        // write data to ext4
+        sb.ext4fs.ext4_file_write(inode as u64, 0, all_data.as_slice());
+    }
     for app in apps {
         // load app data from host file system
         println!("{}",app);

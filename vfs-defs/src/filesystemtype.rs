@@ -44,10 +44,28 @@ pub trait FileSystemType: Send + Sync  {
             unimplemented!()
     }
     ///
+    fn umount(self:Arc<Self>,
+        path:&str,
+        _flags:MountFlags
+    )->SysResult<()>;
+    ///
     fn add_superblock(&self, abs_mount_path: &str, superblock: Arc<dyn SuperBlock>) {
         self.get_inner()
             .superblocks
             .lock()
             .insert(abs_mount_path.to_string(), superblock);
+    }
+    ///
+    fn remove_superblock(&self,abs_mount_path: &str)->SysResult<()>{
+        if let Some(_sb) = self.get_inner()
+            .superblocks
+            .lock()
+            .remove(abs_mount_path){
+            Ok(())
+        }
+        else{
+            Err(SysError::ENOENT)
+        }
+        
     }
 }

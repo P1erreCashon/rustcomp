@@ -1,6 +1,9 @@
 use spin::{Mutex, MutexGuard};
 use alloc::sync::{Weak,Arc};
 use downcast_rs::{impl_downcast, DowncastSync};
+use system_result::SysResult;
+use crate::Kstat;
+
 use super::SuperBlock;
 /// Type of a disk inode
 #[derive(Clone, Copy)]
@@ -73,6 +76,8 @@ pub trait Inode: Send + Sync+ DowncastSync {
     fn load_from_disk(&self);
     ///
     fn get_meta(&self) -> &InodeMeta;
+    ///
+    fn get_attr(&self)->SysResult<Kstat>;
     ///
     fn get_size(&self) -> u32 {//这要改
         self.get_meta().inner.lock().size

@@ -13,11 +13,14 @@ const SYSCALL_CHDIR: usize = 9;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_MKDIR: usize = 20;
-const SYSCALL_OPEN: usize = 56;
+const SYSCALL_UMOUNT: usize = 39;
+const SYSCALL_MOUNT: usize = 40;
+const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
@@ -35,7 +38,7 @@ use process::*;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
-pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
    // println!("syscallid:{}",syscall_id);
     let mut result:isize = 0;
     match syscall_id {
@@ -55,8 +58,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             result = sys_mkdir(args[0] as *const u8);
             log_debug!("syscall_mkdir result:{}",result);
         }
-        SYSCALL_OPEN => {
-            result = sys_open(args[0] as *const u8, args[1] as u32);
+        SYSCALL_OPENAT => {
+            result = sys_openat(args[0] as isize,args[1] as *const u8, args[2] as u32,args[3] as u32);
             log_debug!("syscall_open result:{}",result);
         },
         SYSCALL_CLOSE => {
@@ -107,6 +110,18 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_BRK => {
             result = sys_brk(args[0]);
             log_debug!("syscall_pipe result:{}",result);
+        },
+        SYSCALL_MOUNT => {
+            result = sys_mount(args[0] as *const u8,args[1] as *const u8,args[2] as *const u8,args[3] as u32,args[4] as *const u8,);
+            log_debug!("syscall_mount result:{}",result);
+        },
+        SYSCALL_UMOUNT => {
+            result = sys_umount(args[0] as *const u8,args[1] as u32);
+            log_debug!("syscall_umount result:{}",result);
+        },
+        SYSCALL_FSTAT => {
+            result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
+            log_debug!("syscall_umount result:{}",result);
         },
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

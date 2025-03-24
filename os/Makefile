@@ -161,6 +161,9 @@ debug: build
 gdbserver: build
 	@$(QEMU_EXEC) -s -S
 
+test-gdbserver: testbuild
+	@$(QEMU_EXEC) -s -S
+
 gdbclient:
 	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
 
