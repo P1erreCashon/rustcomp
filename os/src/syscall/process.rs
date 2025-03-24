@@ -11,11 +11,11 @@ use arch::time::Time;
 use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
-use crate::config::PAGE_SIZE;
+use crate::config::{PAGE_SIZE, UNAME};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::MapPermission;
 use arch::pagetable::MappingSize;
-use crate::task::Tms;
+use crate::task::{Tms, Utsname};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -322,4 +322,16 @@ pub fn sys_times(tms_ptr: *mut Tms) -> isize {
     tms.tms_cutime = Time::now().to_msec() as usize - taskinner.tms.tms_cutime;
     tms.tms_cstime = Time::now().to_msec() as usize - taskinner.tms.tms_cstime;
     tms.tms_cutime as isize
+}
+
+pub fn sys_uname(mes: *mut Utsname) -> isize {
+    let uname = unsafe {
+        if mes.is_null() {
+            return -1;
+        }
+        &mut *mes
+    };
+    //
+    uname.copy_from(&UNAME);
+    0
 }

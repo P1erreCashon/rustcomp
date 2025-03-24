@@ -25,6 +25,7 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_TIMES: usize = 153;
+const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -37,7 +38,7 @@ mod process;
 
 use fs::*;
 use process::*;
-use crate::task::Tms;
+use crate::task::{Tms, Utsname};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -129,6 +130,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_TIMES => {
             result = sys_times(args[0] as *mut Tms);
             log_debug!("syscall_times result:{}",result);
+        }
+        SYSCALL_UNAME => {
+            result = sys_uname(args[0] as *mut Utsname);
+            log_debug!("syscall_uname result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

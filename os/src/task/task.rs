@@ -1,7 +1,7 @@
 //!Implementation of [`TaskControlBlock`]
 use super::current_task;
 use super::{pid_alloc, PidHandle};
-use crate::config::{KERNEL_STACK_SIZE, USER_HEAP_SIZE, USER_STACK_SIZE};
+use crate::config::{KERNEL_STACK_SIZE, USER_STACK_SIZE};
 use crate::fs::{Stdin, Stdout};
 use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
@@ -23,6 +23,53 @@ use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
+///
+#[repr(C)]
+pub struct Utsname {
+    ///
+    pub sysname: [u8; 65],
+    ///
+    pub nodename: [u8; 65],
+    ///
+    pub release: [u8; 65],
+    ///
+    pub version: [u8; 65],
+    ///
+    pub machine: [u8; 65],
+    ///
+    pub domainname: [u8; 65],
+}
+impl Default for Utsname {
+    fn default() -> Self {
+        Utsname {
+            sysname: string_to_array("rust-os"),
+            nodename: string_to_array("node"),
+            release: string_to_array("0"),
+            version: string_to_array("1.0"),
+            machine: string_to_array("risc-v"),
+            domainname: string_to_array("user"),
+        }
+    }
+}
+impl Utsname {
+    /// Copy the contents of another Utsname instance into this instance
+    pub fn copy_from(&mut self, other: &Utsname) {
+        self.sysname.copy_from_slice(&other.sysname);
+        self.nodename.copy_from_slice(&other.nodename);
+        self.release.copy_from_slice(&other.release);
+        self.version.copy_from_slice(&other.version);
+        self.machine.copy_from_slice(&other.machine);
+        self.domainname.copy_from_slice(&other.domainname);
+    }
+}
+// Helper function to convert a string to a fixed-size array of u8
+fn string_to_array(s: &str) -> [u8; 65] {
+    let mut array = [0u8; 65];
+    let bytes = s.as_bytes();
+    let len = bytes.len().min(64); // Ensure we don't overflow the array
+    array[..len].copy_from_slice(&bytes[..len]);
+    array
+}
 #[repr(C)]
 ///
 pub struct Tms { //记录起始时间

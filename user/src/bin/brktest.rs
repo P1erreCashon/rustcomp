@@ -7,17 +7,27 @@ use user_lib::brk;
 use user_lib::dup;
 use user_lib::getcwd;
 use user_lib::dup3;
-use user_lib::get_time;
+use user_lib::uname;
 use user_lib::times;
 use user_lib::Tms;
+use user_lib::Utsname;
 use core::convert::TryInto;
 use core::ffi::CStr;
+use core::ptr::addr_of_mut;
 
 static mut tms: Tms = Tms {
     tms_utime: 0,
     tms_stime: 0,
     tms_cutime: 0,
     tms_cstime: 0,
+};
+static mut mes: Utsname = Utsname {
+    sysname: [0; 65],
+    nodename: [0; 65],
+    release: [0; 65],
+    version: [0; 65],
+    machine: [0; 65],
+    domainname: [0; 65],
 };
 const PAGE_SIZE: isize= 4096;
 #[no_mangle]
@@ -52,7 +62,6 @@ pub fn main() -> i32 {
     {
         const s:usize=10;
         let mut buf: [u8;s]=[0;s];
-        let Result= getcwd(buf.as_mut_ptr(), s);
         unsafe {
             // 将数组转换为可变指针
             let result = getcwd(buf.as_mut_ptr(), s);
@@ -94,11 +103,33 @@ pub fn main() -> i32 {
         println!("fd = {}",fd);
     }
     //测试times 153
-    let tms_ptr = unsafe {
-        &mut tms as *mut Tms
-    };
-    for _ in 0..5 {
-        println!("proc_times={}, sys_times={}", times(tms_ptr), get_time());
+    {
+        let tms_ptr = unsafe {
+            //&mut tms as *mut Tms
+            addr_of_mut!(tms)
+        };
+        for _ in 0..5 {
+            //println!("proc_times={}, sys_times={}", times(tms_ptr), get_time());
+            times(tms_ptr);
+            unsafe {
+                tms.show();
+            }
+        }
+    }
+    //测试uname 160
+    {
+        println!("before check");
+        unsafe {
+            mes.show();
+        }
+        let uname_ptr = unsafe {
+            addr_of_mut!(mes)
+        };
+        assert_eq!(uname(uname_ptr), 0);
+        println!("after check");
+        unsafe {
+            mes.show();
+        }
     }
     0
 }

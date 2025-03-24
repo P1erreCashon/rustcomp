@@ -15,6 +15,8 @@ extern crate bitflags;
 use alloc::vec::Vec;
 use buddy_system_allocator::LockedHeap;
 use syscall::*;
+use core::fmt;
+use core::str;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 extern "C" {
@@ -23,6 +25,7 @@ extern "C" {
 }
 
 pub const USER_HEAP_SIZE: usize = 32768;
+/// 用于sys_times
 pub struct Tms { //记录起始时间
     /// 用户时间
     pub tms_utime: usize,
@@ -32,6 +35,46 @@ pub struct Tms { //记录起始时间
     pub tms_cutime: usize, 
     /// 子进程系统时间
     pub tms_cstime: usize, 
+}
+impl Tms {
+    pub fn show(&self) {
+        println!("sys:{}, user:{}", self.tms_stime, self.tms_cstime);
+    }
+}
+/// 用于sys_uname
+pub struct Utsname {
+    ///
+    pub sysname: [u8; 65],
+    ///
+    pub nodename: [u8; 65],
+    ///
+    pub release: [u8; 65],
+    ///
+    pub version: [u8; 65],
+    ///
+    pub machine: [u8; 65],
+    ///
+    pub domainname: [u8; 65],
+}
+impl Utsname {
+    /// Prints the contents of the Utsname structure.
+    pub fn show(&self) {
+        println!("Sysname: {}", bytes_to_string(&self.sysname));
+        println!("Nodename: {}", bytes_to_string(&self.nodename));
+        println!("Release: {}", bytes_to_string(&self.release));
+        println!("Version: {}", bytes_to_string(&self.version));
+        println!("Machine: {}", bytes_to_string(&self.machine));
+        println!("Domainname: {}", bytes_to_string(&self.domainname));
+        
+    }
+}
+
+/// Helper function to convert a byte array to a string.
+fn bytes_to_string(bytes: &[u8; 65]) -> &str {
+    // Find the first null byte (0) to determine the end of the string
+    let null_pos = bytes.iter().position(|&x| x == 0).unwrap_or(bytes.len());
+    // Convert the slice to a string
+    str::from_utf8(&bytes[..null_pos]).unwrap_or("<invalid UTF-8>")
 }
 //pub static mut HEAP_SPACE: [u8; USER_HEAP_SIZE] = [0; USER_HEAP_SIZE];
 
@@ -187,4 +230,8 @@ pub fn dup3(old: usize, new: usize) -> isize {
 
 pub fn times(tms: *mut Tms) -> isize {
     sys_times(tms)
+}
+
+pub fn uname(mes: *mut Utsname) -> isize {
+    sys_uname(mes)
 }

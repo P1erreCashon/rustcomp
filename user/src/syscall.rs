@@ -1,5 +1,5 @@
 use core::arch::asm;
-use crate::Tms;
+use crate::{Tms, Utsname};
 
 const SYSCALL_CHDIR: usize = 9;
 const SYSCALL_GETCWD: usize =17;
@@ -16,6 +16,7 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_TIMES: usize =153;
+const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -124,4 +125,8 @@ pub fn sys_dup3(old: usize, new: usize) -> isize {
 
 pub fn sys_times(tms: *mut Tms) -> isize {
     syscall(SYSCALL_TIMES, [tms as usize, 0, 0])
+}
+
+pub fn sys_uname(mes: *mut Utsname) -> isize {
+    syscall(SYSCALL_UNAME, [mes as usize, 0, 0])
 }
