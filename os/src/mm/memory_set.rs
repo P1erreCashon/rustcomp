@@ -188,12 +188,12 @@ impl MemorySet {
         //self.push(map_area, None);
         let page_table = Arc::get_mut(&mut self.page_table).unwrap();
         page_table.map_page(vpn, ppn, flags.into(), size);
-        println!("after alloc: {},{}",self.heap_area.vpn_range.l,self.heap_area.vpn_range.r);
+        //println!("after alloc: {},{}",self.heap_area.vpn_range.l,self.heap_area.vpn_range.r);
         ppn
         //println!("vpn={}, ppn={}",vpn,ppn);
     }
 
-    /// 解除映射虚拟页号
+    /// 解除映射虚拟页号 还需要改，目前不使用
     pub fn unmap_page(&mut self, vpn: VirtPage) {
         //self.areas
         /*if self.map_type == MapType::Framed {
@@ -217,7 +217,7 @@ impl MemorySet {
         } else {
             panic!("vpn:{} not exists!",vpn);
         }
-        println!("after dealloc: {},{}",self.heap_area.vpn_range.l,self.heap_area.vpn_range.r);
+        //println!("after dealloc: {},{}",self.heap_area.vpn_range.l,self.heap_area.vpn_range.r);
     }
         //frame_dealloc(ppn);
         //还需要对area做data_frames.remove(&ppn);

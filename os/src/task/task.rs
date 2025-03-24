@@ -1,7 +1,7 @@
 //!Implementation of [`TaskControlBlock`]
 use super::current_task;
 use super::{pid_alloc, PidHandle};
-use crate::config::{KERNEL_STACK_SIZE, USER_HEAP_SIZE, USER_STACK_SIZE};
+use crate::config::{KERNEL_STACK_SIZE, USER_STACK_SIZE};
 use crate::fs::{Stdin, Stdout};
 use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
@@ -19,10 +19,89 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
-
+///
+#[repr(C)]
+pub struct Utsname {
+    ///
+    pub sysname: [u8; 65],
+    ///
+    pub nodename: [u8; 65],
+    ///
+    pub release: [u8; 65],
+    ///
+    pub version: [u8; 65],
+    ///
+    pub machine: [u8; 65],
+    ///
+    pub domainname: [u8; 65],
+}
+impl Default for Utsname {
+    fn default() -> Self {
+        Utsname {
+            sysname: string_to_array("rust-os"),
+            nodename: string_to_array("node"),
+            release: string_to_array("0"),
+            version: string_to_array("1.0"),
+            machine: string_to_array("risc-v"),
+            domainname: string_to_array("user"),
+        }
+    }
+}
+impl Utsname {
+    /// Copy the contents of another Utsname instance into this instance
+    pub fn copy_from(&mut self, other: &Utsname) {
+        self.sysname.copy_from_slice(&other.sysname);
+        self.nodename.copy_from_slice(&other.nodename);
+        self.release.copy_from_slice(&other.release);
+        self.version.copy_from_slice(&other.version);
+        self.machine.copy_from_slice(&other.machine);
+        self.domainname.copy_from_slice(&other.domainname);
+    }
+}
+// Helper function to convert a string to a fixed-size array of u8
+fn string_to_array(s: &str) -> [u8; 65] {
+    let mut array = [0u8; 65];
+    let bytes = s.as_bytes();
+    let len = bytes.len().min(64); // Ensure we don't overflow the array
+    array[..len].copy_from_slice(&bytes[..len]);
+    array
+}
+#[repr(C)]
+///
+pub struct Tms { //记录起始时间
+    /// 用户时间
+    pub tms_utime: usize,
+    /// 系统时间
+    pub tms_stime: usize,
+    /// 子进程用户时间
+    pub tms_cutime: usize, 
+    /// 子进程系统时间
+    pub tms_cstime: usize, 
+}
+impl Tms {
+    ///
+    pub fn new() -> Self {
+        Self {
+            tms_utime: 0,
+            tms_stime: 0,
+            tms_cutime: Time::now().to_msec() as usize,
+            tms_cstime: Time::now().to_msec() as usize,
+        }
+    }
+    ///
+    pub fn from_other_task(o_tms: &Tms) -> Self {
+        Self {
+            tms_utime: o_tms.tms_utime,
+            tms_stime: o_tms.tms_stime,
+            tms_cutime: Time::now().to_msec() as usize,
+            tms_cstime: Time::now().to_msec() as usize,
+        }
+    }
+}
 pub struct KernelStack {
 //    inner: Arc<[u128; KERNEL_STACK_SIZE / size_of::<u128>()]>,
     inner: Arc<Vec<u128>>,
@@ -65,7 +144,8 @@ pub struct TaskControlBlockInner {
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
     pub stack_bottom: usize,
-    //pub heap_area: MapArea,
+    pub max_data_addr: usize,
+    pub tms: Tms,
 }
 fn task_entry() {
     let task = current_task()
@@ -150,6 +230,8 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
+                    max_data_addr: heap_top,
+                    tms: Tms::new(),
                     }
                 ),
         };
@@ -172,10 +254,11 @@ impl TaskControlBlock {
     ///
     pub fn exec(&self, elf_data: &[u8], args: Vec<String>) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, mut user_sp, entry_point, _heap_bottom) = MemorySet::from_elf(elf_data);
-        self.inner_exclusive_access().heap_top = _heap_bottom;
+        let (memory_set, mut user_sp, entry_point, heap_top) = MemorySet::from_elf(elf_data);
+        self.inner_exclusive_access().heap_top = heap_top;
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
-        //self.inner_exclusive_access().heap_area = MapArea::new(VirtAddr::new(0),VirtAddr::new(0),MapType::Framed,MapPermission::U | MapPermission::R | MapPermission::W |MapPermission::X);
+        self.inner_exclusive_access().max_data_addr = heap_top;
+        self.inner_exclusive_access().tms= Tms::new();
         memory_set.activate();
         // push arguments on user stack
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
@@ -255,6 +338,8 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
+                    max_data_addr: parent_inner.max_data_addr,
+                    tms: Tms::from_other_task(&parent_inner.tms),
                 })
             ,
         });

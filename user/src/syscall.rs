@@ -1,16 +1,22 @@
 use core::arch::asm;
+use crate::{Tms, Utsname};
 
 const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_GETCWD: usize =17;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_MKDIR: usize = 20;
+const SYSCALL_DUP: usize = 23;
+const SYSCALLDUP3: usize = 24;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
-const SYSCALL_PIPE: usize = 59; //pipe
+const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_TIMES: usize =153;
+const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -103,4 +109,24 @@ pub fn sys_pipe(pipe: &mut [usize]) -> isize {
 
 pub fn sys_brk(new_brk: usize) -> isize {
     syscall(SYSCALL_BRK, [new_brk as usize, 0, 0])
+}
+
+pub fn sys_getcwd(buf: *mut u8, size: usize) -> isize {
+    syscall(SYSCALL_GETCWD, [buf as usize, size, 0])
+}
+
+pub fn sys_dup(fd: usize) -> isize {
+    syscall(SYSCALL_DUP, [fd, 0, 0])
+}
+
+pub fn sys_dup3(old: usize, new: usize) -> isize {
+    syscall(SYSCALLDUP3, [old, new, 0])
+}
+
+pub fn sys_times(tms: *mut Tms) -> isize {
+    syscall(SYSCALL_TIMES, [tms as usize, 0, 0])
+}
+
+pub fn sys_uname(mes: *mut Utsname) -> isize {
+    syscall(SYSCALL_UNAME, [mes as usize, 0, 0])
 }
