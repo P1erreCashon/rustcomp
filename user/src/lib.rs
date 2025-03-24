@@ -23,7 +23,16 @@ extern "C" {
 }
 
 pub const USER_HEAP_SIZE: usize = 32768;
-
+pub struct Tms { //记录起始时间
+    /// 用户时间
+    pub tms_utime: usize,
+    /// 系统时间
+    pub tms_stime: usize,
+    /// 子进程用户时间
+    pub tms_cutime: usize, 
+    /// 子进程系统时间
+    pub tms_cstime: usize, 
+}
 //pub static mut HEAP_SPACE: [u8; USER_HEAP_SIZE] = [0; USER_HEAP_SIZE];
 
 #[global_allocator]
@@ -176,6 +185,6 @@ pub fn dup3(old: usize, new: usize) -> isize {
     sys_dup3(old, new)
 }
 
-pub fn times() -> isize {
-    sys_times()
+pub fn times(tms: *mut Tms) -> isize {
+    sys_times(tms)
 }

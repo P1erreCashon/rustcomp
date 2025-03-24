@@ -37,6 +37,7 @@ mod process;
 
 use fs::*;
 use process::*;
+use crate::task::Tms;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -126,7 +127,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             log_debug!("syscall_dup3 result:{}",result);
         }
         SYSCALL_TIMES => {
-            result = sys_times();
+            result = sys_times(args[0] as *mut Tms);
             log_debug!("syscall_times result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),

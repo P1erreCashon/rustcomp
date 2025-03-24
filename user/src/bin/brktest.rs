@@ -9,9 +9,16 @@ use user_lib::getcwd;
 use user_lib::dup3;
 use user_lib::get_time;
 use user_lib::times;
+use user_lib::Tms;
 use core::convert::TryInto;
 use core::ffi::CStr;
 
+static mut tms: Tms = Tms {
+    tms_utime: 0,
+    tms_stime: 0,
+    tms_cutime: 0,
+    tms_cstime: 0,
+};
 const PAGE_SIZE: isize= 4096;
 #[no_mangle]
 pub fn main() -> i32 {
@@ -87,8 +94,11 @@ pub fn main() -> i32 {
         println!("fd = {}",fd);
     }
     //测试times 153
+    let tms_ptr = unsafe {
+        &mut tms as *mut Tms
+    };
     for _ in 0..5 {
-        println!("proc_times={}, sys_times={}", times(), get_time());
+        println!("proc_times={}, sys_times={}", times(tms_ptr), get_time());
     }
     0
 }

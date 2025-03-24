@@ -15,6 +15,7 @@ use crate::config::PAGE_SIZE;
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::MapPermission;
 use arch::pagetable::MappingSize;
+use crate::task::Tms;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -305,8 +306,20 @@ pub fn sys_brk(new_brk:  usize) -> isize {
     }
 }
 
-pub fn sys_times() -> isize {
+pub fn sys_times(tms_ptr: *mut Tms) -> isize {
     let binding = current_task().unwrap();
     let taskinner = binding.inner_exclusive_access();
-    (Time::now().to_msec() - taskinner.cur_time) as isize
+    // 安全地获取一个可变引用
+    let tms = unsafe {
+        if tms_ptr.is_null() {
+            return -1;
+        }
+        &mut *tms_ptr
+    };
+    // 当前 - 起始
+    tms.tms_utime = Time::now().to_msec() as usize - taskinner.tms.tms_utime;
+    tms.tms_stime = Time::now().to_msec() as usize - taskinner.tms.tms_stime;
+    tms.tms_cutime = Time::now().to_msec() as usize - taskinner.tms.tms_cutime;
+    tms.tms_cstime = Time::now().to_msec() as usize - taskinner.tms.tms_cstime;
+    tms.tms_cutime as isize
 }

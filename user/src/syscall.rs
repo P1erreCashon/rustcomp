@@ -1,4 +1,5 @@
 use core::arch::asm;
+use crate::Tms;
 
 const SYSCALL_CHDIR: usize = 9;
 const SYSCALL_GETCWD: usize =17;
@@ -121,6 +122,6 @@ pub fn sys_dup3(old: usize, new: usize) -> isize {
     syscall(SYSCALLDUP3, [old, new, 0])
 }
 
-pub fn sys_times() -> isize {
-    syscall(SYSCALL_TIMES, [0, 0, 0])
+pub fn sys_times(tms: *mut Tms) -> isize {
+    syscall(SYSCALL_TIMES, [tms as usize, 0, 0])
 }
