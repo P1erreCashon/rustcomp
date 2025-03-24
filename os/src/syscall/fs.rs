@@ -3,21 +3,17 @@ use crate::fs::open_file;
 use crate::fs::make_pipe;
 use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
+use alloc::string::String;
 use vfs_defs::{OpenFlags,UserBuffer};
 //
-use crate::config::PAGE_SIZE;
 use crate::mm::frame_alloc_more;
 use crate::mm::MapArea;
-//use arch::addr::VirtPage;
 use crate::mm::MapPermission;
-use arch::pagetable::MappingSize;
 use crate::mm::frame_dealloc;
 use crate::mm::MapType;
-use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-//
-//const HEAP_MAX: usize = 0;
+use core::ptr;
 
 pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
     let token = current_user_token();
@@ -104,95 +100,104 @@ pub fn sys_pipe(pipe: *mut usize) -> isize {
     0
 }
 
-pub fn sys_brk(mut new_brk:  usize) -> isize {
-    let task = current_task().unwrap();
-    let mut task_inner = task.inner_exclusive_access();
-    let cur_brk = task_inner.heap_top;
-    //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
-    if new_brk == 0 {
-        return cur_brk as isize;
+//char *buf, size_t size;
+//long ret = syscall(SYS_getcwd, buf, size);
+pub fn sys_getcwd(cwd: *mut u8, size: usize) -> isize {
+    if size <= 0 {
+        return -1;
     }
-    let mut is_align:bool = true;
-    // new_brk->align to 4K
-    let num = new_brk / PAGE_SIZE;
-    if num*PAGE_SIZE < new_brk {
-        new_brk = (num + 1)*PAGE_SIZE;
-        is_align = false;
+    let binding = current_task().unwrap();
+    let task_inner = binding.inner_exclusive_access();
+    let current_path = task_inner.cwd.path();
+    if current_path.len() >= size {
+        return -2;
+    }
+    let bytes = current_path.as_bytes();
+    unsafe {
+        ptr::copy_nonoverlapping(bytes.as_ptr(), cwd, bytes.len());
+    }
+    bytes.len() as isize
+}
+
+//int fd;
+//int ret = syscall(SYS_dup, fd);
+pub fn sys_dup(fd: usize) -> isize {
+    let binding = current_task().unwrap();
+    let mut task_inner = binding.inner_exclusive_access();
+    let fd_table = &mut task_inner.fd_table;
+
+    // 检查文件描述符的有效性
+    if fd >= fd_table.len() {
+        return -1; // EBADF: 无效的文件描述符
     }
 
-    if new_brk > cur_brk {
-        let user_stack_bottom = task_inner.stack_bottom;
+    // 获取要复制的文件对象
+    if let Some(file) = fd_table[fd].clone() { // 使用 clone 提前获取文件对象
+        // 找到第一个空闲的文件描述符位置
+        let mut new_fd = fd_table.len();
+        for (i, entry) in fd_table.iter().enumerate() {
+            if entry.is_none() {
+                new_fd = i;
+                break;
+            }
+        }
+
+        // 如果没有找到空闲位置，扩展 fd_table
+        if new_fd == fd_table.len() {
+            fd_table.push(None);
+        }
+
+        // 复制文件对象的引用到新的位置
+        fd_table[new_fd] = Some(file);
+
+        // 返回新的文件描述符
+        new_fd as isize
+    } else {
+        return -1;
+    }
+}
+
+//int old, int new;
+//int ret = syscall(SYS_dup3, old, new, 0);
+pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> isize {
+    /*if old<0 || new<0 {
+        return -1;
+    }*/
+    if old == new {
+        return new as isize;
+    }
+    let binding = current_task().unwrap();
+    let mut task_inner = binding.inner_exclusive_access();
+    let fd_table = &mut task_inner.fd_table;
+
+    // 检查文件描述符的有效性
+    if old >= fd_table.len() {
+        return -1; // EBADF: 无效的文件描述符
+    }
+    // 获取要复制的文件对象
+    if let Some(file) = fd_table[old].clone() { // 使用 clone 提前获取文件对象
         
-        if new_brk >= user_stack_bottom { 
-            return user_stack_bottom as isize;
-        }
-        // 确认新增虚拟页号范围
-        //let cur_page = (cur_brk + PAGE_SIZE - 1) / PAGE_SIZE;
-        //let new_page = (new_brk + PAGE_SIZE - 1) / PAGE_SIZE;
-        let cur_page = cur_brk / PAGE_SIZE;
-        let new_page = new_brk / PAGE_SIZE;
-        let page_count = new_page - cur_page;
-
-        let mut all_vpn = Vec::<VirtPage>::new();
-        let mut all_ppn = Vec::<PhysPage>::new();
-        if page_count > 0 {
-            // 申请等量的物理页帧
-            /*let frames = frame_alloc_more(page_count);
-            if frames.is_none() {
-                return -1; // 物理内存不足
+        if new >= fd_table.len() {
+            let cnt = new - fd_table.len() + 1;
+            for _ in 0..cnt {
+                fd_table.push(None);
             }
-            let frames = frames.unwrap();*/
-
-            // 在 memory_set 中映射新增的虚拟页号到物理页帧,如(31,32)->(31,30.9->31) 实际申请一页
-            let _start_va: VirtAddr = (cur_brk).into();
-            let _end_va: VirtAddr = (new_brk - PAGE_SIZE -1).into();
-            
-            for i in 0..page_count {
-                let vpn = VirtPage::from(cur_page + i);
-                //let ppn = frames[i].ppn;
-                let mp = MapPermission::R | MapPermission::W | MapPermission::U;
-                let ppn = task_inner.memory_set.map_page(vpn, mp, MappingSize::Page4KB);
-                all_vpn.push(vpn);
-                all_ppn.push(ppn);
-                //println!("vpn:{} ppn:{}",vpn,ppn);
-                /*task_inner.memory_set.map_page(
-                    vpn,
-                    ppn,
-                    MapPermission::R | MapPermission::W | MapPermission::U,
-                    MappingSize::Page4KB,
-                );*/
+            if new != fd_table.len()-1 {
+                panic!("extend fd_table error!, len={}",fd_table.len());
             }
         }
-
-        task_inner.heap_top = new_brk;
-        for (vpn, ppn) in all_vpn.iter().zip(all_ppn.iter()) {
-            println!("VPN: {:?}, PPN: {:?}", vpn, ppn);
-        }
-        0
-    }
-    else if new_brk == cur_brk {
-        -3
-    }
-    else {// 不考虑不合理的减小
-        // 确认需要释放的虚页号
-        let cur_page = cur_brk / PAGE_SIZE;
-        if !is_align { //newbrk已向上取整
-            new_brk -= PAGE_SIZE;
-        }
-        let new_page = new_brk / PAGE_SIZE ; 
-        let page_count = cur_page - new_page;
-        
-        if page_count > 0 {
-            // 解除映射并释放物理页帧
-            for i in 1..(page_count + 1) {
-                let vpn = VirtPage::from(cur_page - i);
-                task_inner.memory_set.unmap_page(vpn);
-                    //frame_dealloc(ppn);
-            }
+        else if fd_table[new].is_some() {
+            // new位置有效，需要关闭文件
+            //sys_close(new); 被锁阻塞
+            fd_table[new].take();
         }
 
-        task_inner.heap_top = new_brk ;
+        // 复制文件对象的引用到新的位置
+        fd_table[new] = Some(file);
 
-        0
+        // 返回新的文件描述符
+        new as isize
+    } else {
+        return -1;
     }
 }

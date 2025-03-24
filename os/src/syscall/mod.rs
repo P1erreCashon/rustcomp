@@ -10,9 +10,13 @@
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
 const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_GETCWD: usize =17;
 const SYSCALL_UNLINK: usize = 18;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_MKDIR: usize = 20;
+const SYSCALL_DUP: usize = 23;
+const SYSCALL_DUP3: usize =  24;//?
+//const SYSCALL_DUP2: usize =  ???
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
@@ -20,6 +24,8 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_TIMES: usize = 153;
+const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_BRK: usize = 214;
@@ -32,6 +38,7 @@ mod process;
 
 use fs::*;
 use process::*;
+use crate::task::{Tms, Utsname};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -108,6 +115,26 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             result = sys_brk(args[0]);
             log_debug!("syscall_pipe result:{}",result);
         },
+        SYSCALL_GETCWD => {
+            result = sys_getcwd(args[0] as *mut u8, args[1] as usize);
+            log_debug!("syscall_getcwd result:{}",result);
+        }
+        SYSCALL_DUP => {
+            result = sys_dup(args[0] as usize);
+            log_debug!("syscall_dup result:{}",result);
+        }
+        SYSCALL_DUP3 => {
+            result = sys_dup3(args[0] as usize, args[1] as usize, 0);
+            log_debug!("syscall_dup3 result:{}",result);
+        }
+        SYSCALL_TIMES => {
+            result = sys_times(args[0] as *mut Tms);
+            log_debug!("syscall_times result:{}",result);
+        }
+        SYSCALL_UNAME => {
+            result = sys_uname(args[0] as *mut Utsname);
+            log_debug!("syscall_uname result:{}",result);
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     result
