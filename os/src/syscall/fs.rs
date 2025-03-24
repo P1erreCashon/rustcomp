@@ -5,12 +5,12 @@ use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
 use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
+use alloc::string::String;
 use device::BLOCK_DEVICE;
 use vfs_defs::Kstat;
 use vfs_defs::MountFlags;
 use vfs_defs::{OpenFlags,UserBuffer};
 use vfs::FILE_SYSTEMS;
-use alloc::string::String;
 //
 use crate::config::PAGE_SIZE;
 use crate::mm::frame_alloc_more;
@@ -23,6 +23,7 @@ use crate::mm::MapType;
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::ptr;
 //
 //const HEAP_MAX: usize = 0;
 pub const AT_FDCWD: isize = -100;
