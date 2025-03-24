@@ -15,9 +15,11 @@ bitflags! {
         ///Read & Write
         const RDWR = 1 << 1;
         ///Allow create
-        const CREATE = 1 << 9;
+        const CREATE = 1 << 6;
         ///Clear file and return an empty one
         const TRUNC = 1 << 10;
+        ///
+        const DIRECTORY = 1 << 16;
     }
 }
 impl OpenFlags {

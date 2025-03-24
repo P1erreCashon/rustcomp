@@ -37,6 +37,29 @@ impl Inode for EfsInode{
     fn get_meta(&self) -> &InodeMeta {
         &self.meta
     }
+    fn get_attr(&self)->SysResult<vfs_defs::Kstat> {
+        Ok(vfs_defs::Kstat{
+                st_dev: 0,
+    st_ino: 0,
+    st_mode: 0,
+    st_nlink: 0,
+    st_uid: 0,
+    st_gid: 0,
+    st_rdev: 0,
+    __pad: 0,
+    st_size: 0,
+    st_blksize: 0,
+    __pad2: 0,
+    st_blocks: 0,
+    st_atime_sec: 0,
+    st_atime_nsec: 0,
+    st_mtime_sec: 0,
+    st_mtime_nsec: 0,
+    st_ctime_sec: 0,
+    st_ctime_nsec: 0,
+    unused: 0,
+        })
+    }
     /// Clear the data in current inode
     fn clear(&self) {
         let (mut inner,mut meta) = self.lock_inner();

@@ -1,10 +1,18 @@
 //! File and filesystem-related syscalls
 use crate::fs::open_file;
 use crate::fs::make_pipe;
+use crate::fs::path_to_dentry;
+use crate::fs::path_to_father_dentry;
 use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
 use crate::task::{current_task, current_user_token};
 use alloc::string::String;
+
+use device::BLOCK_DEVICE;
+use vfs_defs::Kstat;
+use vfs_defs::MountFlags;
+
 use vfs_defs::{OpenFlags,UserBuffer};
+use vfs::FILE_SYSTEMS;
 //
 use crate::mm::frame_alloc_more;
 use crate::mm::MapArea;
@@ -14,6 +22,9 @@ use crate::mm::MapType;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ptr;
+
+//const HEAP_MAX: usize = 0;
+pub const AT_FDCWD: isize = -100;
 
 pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
     let token = current_user_token();
@@ -55,18 +66,35 @@ pub fn sys_read(fd: usize, buf: *mut u8, len: usize) -> isize {
     }
 }
 
-pub fn sys_open(path: *const u8, flags: u32) -> isize {
+pub fn sys_openat(pfd:isize,path: *const u8, flags: u32,_mode:u32) -> isize {
     let task = current_task().unwrap();
     let token = current_user_token();
     let path = translated_str(token, path);
-    if let Some(inode) = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
-        let mut inner = task.inner_exclusive_access();
-        let fd = inner.alloc_fd();
-        inner.fd_table[fd] = Some(inode);
-        fd as isize
-    } else {
-        -1
+    if path.chars().next() == Some('/') || pfd == AT_FDCWD{
+        if let Some(inode) = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
+            let mut inner = task.inner_exclusive_access();
+            let fd = inner.alloc_fd();
+            inner.fd_table[fd] = Some(inode);
+            return fd as isize;
+        } else {
+            return -1;
+        }
     }
+    let mut inner = task.inner_exclusive_access();
+    if let Some(file) = &inner.fd_table[pfd as usize]{
+        let father_path = file.get_dentry().path();
+        let child_path = father_path+&path;
+        if let Some(inode) = open_file(child_path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
+            let fd = inner.alloc_fd();
+            inner.fd_table[fd] = Some(inode);
+            return fd as isize;
+        } else {
+            return -1;
+        }
+
+    }
+    return -1;
+
 }
 
 pub fn sys_close(fd: usize) -> isize {
@@ -200,4 +228,54 @@ pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> isize {
     } else {
         return -1;
     }
+}
+
+pub fn sys_mount(_special:*const u8,dir:*const u8,fstype:*const u8,_flags:u32,_data:*const u8)->isize{
+    let token = current_user_token();
+    let dir = translated_str(token, dir);
+    let fstype = translated_str(token, fstype);
+    let ext4fstype = FILE_SYSTEMS.lock().find_fs(&String::from("Ext4")).unwrap();
+    if fstype == "vfat"{
+        let mut name = String::new();
+        let parent = path_to_father_dentry(dir.as_str(), &mut name);
+        let device = BLOCK_DEVICE.get().unwrap().clone();
+        let r = ext4fstype.mount(name.as_str(), parent, MountFlags::empty(), Some(device));
+        if r.is_err(){
+            return -1;
+        }
+        return 0;
+    }
+    else{
+        return -1;
+    }
+}
+
+pub fn sys_umount(special:*const u8,_flags:u32)->isize{
+    let token = current_user_token();
+    let path = translated_str(token, special);
+    let ext4fstype = FILE_SYSTEMS.lock().find_fs(&String::from("Ext4")).unwrap();
+    if let Some(dentry) = path_to_dentry(&path){
+        if let Err(_e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
+            return -1;
+        }
+        return 0;
+    }
+    return -1;
+
+}
+
+pub fn sys_fstat(fd:usize,kst:*mut Kstat)->isize{
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    if let Some(file) = task.inner_exclusive_access().fd_table[fd].clone() {
+        let r = file.get_dentry().get_inode().unwrap().get_attr();
+        if r.is_err(){
+            return -1;
+        }    
+        let kst = translated_refmut(token, kst);
+        let attr = r.unwrap();
+        *kst = attr;
+        return 0;
+    }
+    return -1;
 }

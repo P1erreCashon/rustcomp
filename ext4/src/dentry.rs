@@ -42,6 +42,7 @@ impl Dentry for Ext4Dentry{
             }
         }
         let child_inode = Ext4Inode::new(InodeMeta::new(child_ino.unwrap() as usize, sblock),);
+        child_inode.set_type(_type);
         child_dir.set_inode(Arc::new(child_inode));
         Ok(child_dir)
     }
