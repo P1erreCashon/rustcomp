@@ -127,9 +127,6 @@ pub fn sys_chdir(path: *const u8) -> isize {
         let task = current_task().unwrap();
         let mut task_inner = task.inner_exclusive_access();
         task_inner.cwd = dentry;
-        for name in task_inner.cwd.clone().ls() {
-            println!("{}", name);
-        }
         0
     }
     else {
@@ -162,19 +159,6 @@ pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
             return 0;
         }
         return -1;
-    }
-    else {
-        -1
-    }
-
-}
-
-///
-pub fn sys_mkdir(path: *const u8) -> isize {
-    let token = current_user_token();
-    let path = translated_str(token, path);
-    if let Some(_inode) =create_file(path.as_str(), vfs_defs::DiskInodeType::Directory){
-        0
     }
     else {
         -1

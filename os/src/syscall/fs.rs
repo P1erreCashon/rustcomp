@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::open_file;
+use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
@@ -112,6 +112,32 @@ pub fn sys_close(fd: usize) -> isize {
     }
     inner.fd_table[fd].take();
     0
+}
+
+///
+pub fn sys_mkdirat(pfd:isize,path: *const u8,_mode:u32) -> isize {
+    let task = current_task().unwrap();
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if path.chars().next() == Some('/') || pfd == AT_FDCWD{
+        if let Some(_inode) = create_file(path.as_str(), vfs_defs::DiskInodeType::Directory) {
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+    let inner = task.inner_exclusive_access();
+    if let Some(file) = &inner.fd_table[pfd as usize]{
+        let father_path = file.get_dentry().path();
+        let child_path = father_path+&path;
+        if let Some(_inode) = create_file(child_path.as_str(), vfs_defs::DiskInodeType::Directory)  {
+            return 0;
+        } else {
+            return -1;
+        }
+
+    }
+    return -1;
 }
 
 pub fn sys_pipe(pipe: *mut i32) -> isize {

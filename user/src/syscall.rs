@@ -1,11 +1,11 @@
 use core::arch::asm;
 use crate::{Tms, Utsname};
 
-const SYSCALL_CHDIR: usize = 9;
+const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_GETCWD: usize =17;
 const SYSCALL_LINK: usize = 19;
 const SYSCALL_UNLINK: usize = 18;
-const SYSCALL_MKDIR: usize = 20;
+const SYSCALL_MKDIR: usize = 34;
 const SYSCALL_DUP: usize = 23;
 const SYSCALLDUP3: usize = 24;
 const SYSCALL_OPEN: usize = 56;
