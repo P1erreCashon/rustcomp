@@ -31,10 +31,13 @@ pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
     if fd >= inner.fd_table.len() {
+        println!("write1");
         return -1;
     }
+    
     if let Some(file) = &inner.fd_table[fd] {
         if !file.writable() {
+            println!("write2 fd:{}",fd);
             return -1;
         }
         let file = file.clone();
@@ -42,6 +45,7 @@ pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
         drop(inner);
         file.write(translated_byte_buffer(token, buf, len)) as isize
     } else {
+        println!("write3");
         -1
     }
 }
@@ -110,7 +114,7 @@ pub fn sys_close(fd: usize) -> isize {
     0
 }
 
-pub fn sys_pipe(pipe: *mut usize) -> isize {
+pub fn sys_pipe(pipe: *mut i32) -> isize {
     let task = current_task().unwrap();
     let token = current_user_token();
     //let mut inner = task.acquire_inner_lock();
@@ -120,11 +124,11 @@ pub fn sys_pipe(pipe: *mut usize) -> isize {
     let (pipe_read, pipe_write) = make_pipe(self_dentry); //创建一个管道并获取其读端和写端
     let read_fd = inner.alloc_fd();
     inner.fd_table[read_fd] = Some(pipe_read);
-    let write_fd = inner.alloc_fd();
+    let write_fd = inner.alloc_fd() ;
     inner.fd_table[write_fd] = Some(pipe_write);
     // 文件描述符写回到应用地址空间
-    *translated_refmut(token, pipe) = read_fd;
-    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd;
+    *translated_refmut(token, pipe) = read_fd as i32;
+    *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd as i32;
     0
 }
 

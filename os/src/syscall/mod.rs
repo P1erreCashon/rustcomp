@@ -71,7 +71,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
         },
         SYSCALL_CLOSE => {
             result = sys_close(args[0]);
-            log_debug!("syscall_close result:{}",result);
+            log_debug!("syscall_close result:{} closed:{}",result,args[0]);
         },
         SYSCALL_READ => {
             result = sys_read(args[0], args[1] as *mut u8, args[2]);
@@ -87,7 +87,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
             
         },
         SYSCALL_YIELD => {
-            log_debug!("syscall_yield");
+        //    log_debug!("syscall_yield");
             sys_yield();
         },
         SYSCALL_GET_TIME => {
@@ -108,15 +108,15 @@ pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
         },
         SYSCALL_WAITPID => {
             result = sys_waitpid(args[0] as isize, args[1] as *mut i32);
-            log_debug!("syscall_waitpid result:{}",result);
+        //    log_debug!("syscall_waitpid result:{}",result);
         },
         SYSCALL_PIPE => {
-            result = sys_pipe(args[0] as *mut usize);
+            result = sys_pipe(args[0] as *mut i32);
             log_debug!("syscall_pipe result:{}",result);
         },
         SYSCALL_BRK => {
             result = sys_brk(args[0]);
-            log_debug!("syscall_pipe result:{}",result);
+            log_debug!("syscall_brk result:{}",result);
         },
         SYSCALL_MOUNT => {
             result = sys_mount(args[0] as *const u8,args[1] as *const u8,args[2] as *const u8,args[3] as u32,args[4] as *const u8,);
