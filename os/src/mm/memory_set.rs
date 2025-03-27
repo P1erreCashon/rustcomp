@@ -7,7 +7,7 @@ use alloc::alloc::dealloc;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use arch::USER_VADDR_END;
-use crate::config::{PAGE_SIZE, USER_STACK_SIZE};
+use crate::config::{PAGE_SIZE, USER_STACK_SIZE, USER_STACK_TOP, USER_MMAP_TOP};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -35,7 +35,9 @@ pub struct MemorySet {
     ///
     pub areas: Vec<MapArea>,
     ///
-    pub heap_area: MapArea,
+    pub heap_area: Vec<MapArea>,
+    ///
+    pub mmap_area: Vec<MapArea>,
 }
 
 impl MemorySet {
@@ -44,12 +46,8 @@ impl MemorySet {
         Self {
             page_table:Arc::new(PageTableWrapper::alloc()),
             areas: Vec::new(),
-            heap_area: MapArea::new( 
-            VirtAddr::new(0),
-            VirtAddr::new(0),
-            crate::mm::MapType::Framed,
-            MapPermission::U | MapPermission::R | MapPermission::W |MapPermission::X,
-            ),
+            heap_area: Vec::new(),
+            mmap_area: Vec::new(),
         }
     }
     ///Get pagetable `root_ppn`
@@ -63,6 +61,22 @@ impl MemorySet {
             map_area.copy_data(&self.page_table, data);
         }
         self.areas.push(map_area);
+    }
+    /// 分配+映射->heap_area
+    pub fn push_into_heaparea(&mut self, mut map_area: MapArea, data: Option<&[u8]>) { 
+        map_area.map(&self.page_table);
+        if let Some(data) = data {
+            map_area.copy_data(&self.page_table, data);
+        }
+        self.heap_area.push(map_area);
+    }
+    /// 分配+映射->mmap_area
+    pub fn push_into_mmaparea(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
+        map_area.map(&self.page_table);
+        if let Some(data) = data {
+            map_area.copy_data(&self.page_table, data);
+        }
+        self.mmap_area.push(map_area);
     }
     /// Include sections in elf and trampoline and TrapContext and user stack,
     /// also returns user_sp and entry point.
@@ -114,7 +128,7 @@ impl MemorySet {
         // let max_end_va: VirtAddr = max_end_vpn.into();
         
         // guard page
-        let user_stack_top = 0x8000_0000;
+        let user_stack_top = USER_STACK_TOP; //8G
         let user_stack_bottom = user_stack_top - USER_STACK_SIZE;
         //println!("heaptop:{:x} user_stack_bottom:{:x}",heap_top,user_stack_top);
         memory_set.push(
@@ -151,6 +165,35 @@ impl MemorySet {
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
+        // copy heap_area (可能出错)
+        for area in user_space.heap_area.iter() {
+            let new_area = MapArea::from_another(area);
+            memory_set.push_into_heaparea(new_area, None);
+            // copy data from another space
+            for vpn in area.vpn_range {
+                let src_ppn = user_space.translate(vpn).unwrap().0;
+                let dst_ppn = memory_set.translate(vpn).unwrap().0;
+              //  dst_ppn
+                //    .get_bytes_array()
+                  //  .copy_from_slice(src_ppn.get_bytes_array());
+                  dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
+            }
+        }
+        //copy mmap_area (可能出错)
+        for area in user_space.mmap_area.iter() {
+            let new_area = MapArea::from_another(area);
+            memory_set.push_into_mmaparea(new_area, None);
+            // copy data from another space
+            for vpn in area.vpn_range {
+                let src_ppn = user_space.translate(vpn).unwrap().0;
+                let dst_ppn = memory_set.translate(vpn).unwrap().0;
+              //  dst_ppn
+                //    .get_bytes_array()
+                  //  .copy_from_slice(src_ppn.get_bytes_array());
+                  dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
+            }
+        }
+        
         memory_set
     }
     ///Refresh TLB with `sfence.vma`
@@ -168,7 +211,18 @@ impl MemorySet {
         //*self = Self::new_bare();
         self.areas.clear();
     }
+    /// 用于munmap
+    pub fn remove_map_area_by_vpn_start(&mut self, num: VirtPage) -> i32 {
+        if let Some(pos) = self.mmap_area.iter().position(|map_area| map_area.vpn_range.get_start() == num) {
+            println!("remove vpn: {}~{}",self.mmap_area[pos].vpn_range.get_start(),self.mmap_area[pos].vpn_range.get_end());
+            self.mmap_area.remove(pos);
+            0 // 成功找到并移除，返回 0 或其他表示成功的值
+        } else {
+            -1 // 未找到，返回 -1 或其他表示失败的值
+        }
+    }
 }
+/*
 // 动态堆
 impl MemorySet {
     /// 映射虚拟页号到物理页帧
@@ -221,7 +275,7 @@ impl MemorySet {
     }
         //frame_dealloc(ppn);
         //还需要对area做data_frames.remove(&ppn);
-}
+}*/
 
 /// map area structure, controls a contiguous piece of virtual memory
 
@@ -294,8 +348,9 @@ impl MapArea {
         for vpn in self.vpn_range {
             //self.map_one(page_table, vpn);
             let p_tracker = frame_alloc().expect("can't allocate frame");
+            //println!("vpn={},ppn={}",vpn,p_tracker.ppn);
             page_table.map_page(vpn, p_tracker.ppn, self.map_perm.into(), MappingSize::Page4KB);
-            self.data_frames.insert(p_tracker.ppn, p_tracker);
+            self.data_frames.insert(p_tracker.ppn, p_tracker);   
         }
     } /* 
     pub fn unmap(&mut self, page_table: &mut PageTable) {
@@ -341,7 +396,7 @@ bitflags! {
         const R = 1 << 1;
         ///Writable
         const W = 1 << 2;
-        ///Excutable
+        ///Executable
         const X = 1 << 3;
         ///Accessible in U mode
         const U = 1 << 4;
