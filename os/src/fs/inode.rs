@@ -101,7 +101,7 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<dyn File>>{//还需
         }
     } else {
         if let Some(dentry) = path_to_dentry(path){
-            if dentry.is_dir() && flags.bits() == 0{
+            if dentry.is_dir() && ((flags.bits()&OpenFlags::RDONLY.bits()) != OpenFlags::RDONLY.bits()){
                 return None;
             }
             if flags.contains(OpenFlags::TRUNC) && dentry.is_file(){
