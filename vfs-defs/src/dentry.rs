@@ -8,7 +8,7 @@ use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock};
 use spin::{Mutex,MutexGuard};
 use system_result::{SysError,SysResult};
 use super::{File,OpenFlags};
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 ///
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DentryState {

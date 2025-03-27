@@ -309,3 +309,143 @@ pub fn sys_fstat(fd:usize,kst:*mut Kstat)->isize{
     }
     return -1;
 }
+
+pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->isize{
+    #[derive(Debug, Clone, Copy)]
+    #[repr(C)]
+    struct SyscallDirent {
+        d_ino: u64,
+        d_off: u64,
+        d_reclen: u16,
+        d_type: u8,
+    }
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    if let Some(file) = task.inner_exclusive_access().fd_table[fd].clone() {
+        let mut write_size = 0;
+        let buf = translated_byte_buffer(token, buf, len);
+        let mut buf_slice = buf;
+        let mut offset = file.get_offset();
+        for dentry in file.get_dentry().get_inner().children.lock().values().skip(*offset){
+            if dentry.has_no_inode(){
+                *offset+=1;
+                continue;
+            }
+            let name_size = dentry.get_name_str().len() + 1;
+            let d_reclen = ((19 + name_size + 7)  & !0x7) as u16;
+            let d_off = *offset as u64;
+            let inode = dentry.get_inode().unwrap();
+            let d_ino = inode.get_meta().ino as u64;
+            let mut d_type:u8 = 0;
+            if inode.is_dir(){
+                d_type = 4;
+            }
+            else if inode.is_file(){
+                d_type = 8;
+            }
+            let syscall_dirent = SyscallDirent{
+                d_ino,
+                d_off,
+                d_reclen,
+                d_type,
+            };
+            if write_size + d_reclen > len as u16{
+                break;
+            }
+            *offset +=1;
+            let ptr = buf_slice.as_mut_ptr() as *mut SyscallDirent;
+            *translated_refmut(token, ptr) = syscall_dirent;
+            buf_slice[19..19 + name_size - 1].copy_from_slice(dentry.get_name_str().as_bytes());
+            buf_slice[19 + name_size - 1] = b'\0';
+            buf_slice = &mut buf_slice[d_reclen as usize..];
+            write_size += d_reclen;
+        }
+        return write_size as isize;
+        
+    }
+    return -1;
+}
+
+///
+pub fn sys_link(old_dirfd:isize,old_path: *const u8,new_dirfd:isize,new_path:*const u8,_flags:u32) -> isize {
+    let old_path = parse_fd_path(old_dirfd, old_path);
+    if old_path.is_none(){
+        return -1;
+    }
+    let new_path = parse_fd_path(new_dirfd, new_path);
+    if new_path.is_none(){
+        return -1;
+    }
+    let old_path = old_path.unwrap();
+    let new_path = new_path.unwrap();
+    if let Some(dentry) = path_to_dentry(&old_path){
+        if dentry.is_dir(){
+            drop(dentry);
+            return -1
+        }
+        let mut name = String::new();
+        if let Some(father_dentry) = path_to_father_dentry(&new_path,&mut name){
+            let r = father_dentry.lookup(name.as_str());
+            if r.is_ok(){//EEXIST
+                return -1;
+            }
+            let new_dentry = father_dentry.find_or_create(name.as_str(), vfs_defs::DiskInodeType::File);
+            if let Err(e) = dentry.link(&new_dentry){
+                println!("link err: {:?}",e);
+                return -1;
+            }
+            return 0;
+        }
+        return -1;
+    }
+    else {
+        -1
+    }
+
+}
+
+///
+pub fn sys_unlink(dirfd:isize,path: *const u8,_flags:u32) -> isize {
+    let path = parse_fd_path(dirfd, path);
+    if path.is_none(){
+        return -1;
+    }
+    let path = path.unwrap();
+    let mut name = String::new();
+    if let Some(father) = path_to_father_dentry(&path,&mut name){
+        if name.eq(".") || name.eq(".."){
+            return -1
+        }
+        if let Some(old) = path_to_dentry(&path){
+            if father.unlink(&old).is_err(){
+                return -1;
+            }
+            return 0;
+        }
+        return -1;
+    }
+    else {
+        -1
+    }
+
+}
+
+fn parse_fd_path(fd: isize,path:*const u8)->Option<String>{
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if path.chars().next() == Some('/') || fd == AT_FDCWD{
+        return Some(path);
+    }
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if let Some(file) = &inner.fd_table[fd as usize]{
+        let father_path = file.get_dentry().path();
+        let child_path = father_path+&path;
+        drop(inner);
+        return Some(child_path);
+    }
+    else{
+        drop(inner);
+        return None;
+    }
+}

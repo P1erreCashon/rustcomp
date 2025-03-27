@@ -50,6 +50,7 @@ pub mod task;
 #[macro_use]
 extern  crate logger;
 use logger::*;
+use task::current_task;
 use core::arch::global_asm;
 
 //use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
