@@ -7,7 +7,7 @@ use crate::task::{
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use arch::time::Time;
+use arch::time::{self, Time};
 use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
@@ -15,12 +15,60 @@ use crate::config::{PAGE_SIZE, UNAME};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::{MapPermission, MapArea};
 use arch::pagetable::MappingSize;
-use crate::task::{Tms, Utsname};
-
+use crate::task::{Tms, Utsname,TimeSpec};
+use bitflags::*;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
+bitflags! {
+    /// Defined in <bits/sched.h>
+    pub struct CloneFlags: u64 {
+        /// Set if VM shared between processes.
+        const VM = 0x0000100;
+        /// Set if fs info shared between processes.
+        const FS = 0x0000200;
+        /// Set if open files shared between processes.
+        const FILES = 0x0000400;
+        /// Set if signal handlers shared.
+        const SIGHAND = 0x00000800;
+        /// Set if a pidfd should be placed in parent.
+        const PIDFD = 0x00001000;
+        /// Set if we want to have the same parent as the cloner.
+        const PARENT = 0x00008000;
+        /// Set to add to same thread group.
+        const THREAD = 0x00010000;
+        /// Set to shared SVID SEM_UNDO semantics.
+        const SYSVSEM = 0x00040000;
+        /// Set TLS info.
+        const SETTLS = 0x00080000;
+        /// Store TID in userlevel buffer before MM copy.
+        const PARENT_SETTID = 0x00100000;
+        /// Register exit futex and memory location to clear.
+        const CHILD_CLEARTID = 0x00200000;
+        /// Store TID in userlevel buffer in the child.
+        const CHILD_SETTID = 0x01000000;
+        /// Create clone detached.
+        const DETACHED = 0x00400000;
+        /// Set if the tracing process can't
+        const UNTRACED = 0x00800000;
+        /// New cgroup namespace.
+        const NEWCGROUP = 0x02000000;
+        /// New utsname group.
+        const NEWUTS = 0x04000000;
+        /// New ipcs.
+        const NEWIPC = 0x08000000;
+        /// New user namespace.
+        const NEWUSER = 0x10000000;
+        /// New pid namespace.
+        const NEWPID = 0x20000000;
+        /// New network namespace.
+        const NEWNET = 0x40000000;
+        /// Clone I/O context.
+        const IO = 0x80000000 ;
+    }
+}
+
 pub fn sys_exit(exit_code: i32) -> ! {
-    exit_current_and_run_next(exit_code);
+    exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
     panic!("Unreachable in sys_exit!");
 }
 
@@ -29,16 +77,31 @@ pub fn sys_yield() -> isize {
     0
 }
 
-pub fn sys_get_time() -> isize {
-//    get_time_ms() as isize
-    Time::now().to_msec() as isize
+pub fn sys_get_time(ts:*mut TimeSpec) -> isize {
+    let token = current_user_token();
+    if ts.is_null(){
+        return -1;
+    }
+    let ts = translated_refmut(token, ts);
+    let usec = Time::now().to_usec();
+    *ts = TimeSpec{
+        sec:usec/1000000,
+        usec,
+    };
+    0
 }
 
 pub fn sys_getpid() -> isize {
     current_task().unwrap().pid.0 as isize
 }
 
-pub fn sys_fork() -> isize {
+pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,ctid:*mut i32) -> isize {
+    let flags = CloneFlags::from_bits(flags as u64 & !0xff);
+    let token = current_user_token();
+    if flags.is_none(){
+        return -1;
+    }
+    let flags = flags.unwrap();
     let current_task = current_task().unwrap();
     let new_task = current_task.fork();    
     let new_pid = new_task.pid.0;
@@ -48,6 +111,16 @@ pub fn sys_fork() -> isize {
     // for child process, fork returns 0
     //trap_cx.x[10] = 0;
     trap_cx[TrapFrameArgs::RET] = 0;
+    if !stack_ptr.is_null(){
+        let new_sp = translated_ref(token, stack_ptr);
+        trap_cx[TrapFrameArgs::SP] = new_sp as *const u8 as usize;
+    }
+    if flags.contains(CloneFlags::PARENT_SETTID) {
+        *translated_refmut(token, ptid) = new_pid as i32;
+    }
+    if flags.contains(CloneFlags::CHILD_SETTID) {
+        *translated_refmut(token, ctid) = new_pid as i32;
+    }
     // add new task to scheduler
     add_task(new_task);
     new_pid as isize
@@ -86,7 +159,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     // find a child process
     log_debug!("waitpid pid={}",pid);
     // ---- access current PCB exclusively
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
     if !inner
         .children
         .iter()
@@ -95,26 +168,32 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         return -1;
         // ---- release current PCB
     }
-    let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB exclusively
-        p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
-    });
-    if let Some((idx, _)) = pair {
-        let child = inner.children.remove(idx);
-        // confirm that child will be deallocated after being removed from children list
-        assert_eq!(Arc::strong_count(&child), 1);
-        let found_pid = child.getpid();
-        // ++++ temporarily access child PCB exclusively
-        let exit_code = child.inner_exclusive_access().exit_code;
-        // ++++ release child PCB
-        if exit_code_ptr != core::ptr::null_mut(){
-            *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+    drop(inner);
+    loop{
+        let mut inner = task.inner_exclusive_access();
+        let pair = inner.children.iter().enumerate().find(|(_, p)| {
+            // ++++ temporarily access child PCB exclusively
+            p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
+            // ++++ release child PCB
+        });
+        if let Some((idx, _)) = pair {
+            let child = inner.children.remove(idx);
+            // confirm that child will be deallocated after being removed from children list
+            assert_eq!(Arc::strong_count(&child), 1);
+            let found_pid = child.getpid();
+            // ++++ temporarily access child PCB exclusively
+            let exit_code = child.inner_exclusive_access().exit_code;
+            // ++++ release child PCB
+            if exit_code_ptr != core::ptr::null_mut(){
+                *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+            }
+            return found_pid as isize
+        } else {
+            drop(inner);
+            suspend_current_and_run_next();
         }
-        found_pid as isize
-    } else {
-        -2
     }
+
     // ---- release current PCB automatically
 }
 
@@ -135,60 +214,6 @@ pub fn sys_chdir(path: *const u8) -> isize {
 
 }
 
-///
-pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
-    let token = current_user_token();
-    let old_path = translated_str(token, old_path);
-    let new_path = translated_str(token, new_path);
-    if let Some(dentry) = path_to_dentry(&old_path){
-        if dentry.is_dir(){
-            drop(dentry);
-            return -1
-        }
-        let mut name = String::new();
-        if let Some(father_dentry) = path_to_father_dentry(&new_path,&mut name){
-            let r = father_dentry.lookup(name.as_str());
-            if r.is_ok(){//EEXIST
-                return -1;
-            }
-            let new_dentry = father_dentry.find_or_create(name.as_str(), DiskInodeType::File);
-            if let Err(e) = dentry.link(&new_dentry){
-                println!("link err: {:?}",e);
-                return -1;
-            }
-            return 0;
-        }
-        return -1;
-    }
-    else {
-        -1
-    }
-
-}
-
-///
-pub fn sys_unlink(path: *const u8) -> isize {
-    let token = current_user_token();
-    let path = translated_str(token, path);
-    println!("unlink:{}",path);
-    let mut name = String::new();
-    if let Some(father) = path_to_father_dentry(&path,&mut name){
-        if name.eq(".") || name.eq(".."){
-            return -1
-        }
-        if let Some(old) = path_to_dentry(&path){
-            if father.unlink(&old).is_err(){
-                return -1;
-            }
-            return 0;
-        }
-        return -1;
-    }
-    else {
-        -1
-    }
-
-}
 
 pub fn sys_brk(new_brk:  usize) -> isize {
     let task = current_task().unwrap();
@@ -258,14 +283,13 @@ pub fn sys_brk(new_brk:  usize) -> isize {
 
 pub fn sys_times(tms_ptr: *mut Tms) -> isize {
     let binding = current_task().unwrap();
+    let token = current_user_token();
     let taskinner = binding.inner_exclusive_access();
+    if tms_ptr.is_null(){
+        return -1;
+    }
     // 安全地获取一个可变引用
-    let tms = unsafe {
-        if tms_ptr.is_null() {
-            return -1;
-        }
-        &mut *tms_ptr
-    };
+    let tms = translated_refmut(token, tms_ptr);
     // 当前 - 起始
     tms.tms_utime = Time::now().to_msec() as usize - taskinner.tms.tms_utime;
     tms.tms_stime = Time::now().to_msec() as usize - taskinner.tms.tms_stime;
@@ -284,4 +308,44 @@ pub fn sys_uname(mes: *mut Utsname) -> isize {
     //
     uname.copy_from(&UNAME);
     0
+}
+
+
+/* for nanosleep:
+struct timespec {
+	time_t tv_sec;        /* 秒 */
+	long   tv_nsec;       /* 纳秒, 范围在0~999999999 */
+};
+*/
+pub fn sys_nanosleep(timespec:*const TimeSpec)->isize{
+    if timespec.is_null(){
+        return -1;
+    }
+    let token = current_user_token();
+    let timespec = translated_ref(token, timespec);
+    if timespec.usec > 99999999{
+        return -1;
+    }
+    let total_time = timespec.sec * 1000000000 + timespec.usec;
+    let start_time = Time::now().to_nsec();
+    loop{
+        let current_time = Time::now().to_nsec();
+        if current_time - start_time < total_time{
+            suspend_current_and_run_next();
+        }
+        else{
+            return 0;
+        }
+    }
+}
+
+pub fn sys_getppid()->isize{
+    let current = current_task().unwrap();
+    let inner = current.inner_exclusive_access();
+    if inner.parent.is_none(){
+        return -1;
+    }
+    let parent = inner.parent.clone().unwrap().upgrade().unwrap();
+    let ret = parent.pid.0 as isize;
+    ret
 }

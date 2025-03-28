@@ -70,6 +70,16 @@ fn string_to_array(s: &str) -> [u8; 65] {
     array[..len].copy_from_slice(&bytes[..len]);
     array
 }
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+/// Describes times in seconds and microseconds.
+pub struct TimeSpec {
+    /// second
+    pub sec: usize,
+    /// microsecond
+    pub usec: usize,
+}
+
 #[repr(C)]
 ///
 pub struct Tms { //记录起始时间

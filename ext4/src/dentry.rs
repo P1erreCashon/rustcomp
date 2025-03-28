@@ -9,6 +9,7 @@ use ext4_rs::*;
 
 use super::Ext4Inode;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
+pub const EXT_MAX_BLOCKS: u32 = u32::MAX;
 pub struct Ext4Dentry{
     inner:DentryInner
 }
@@ -107,9 +108,39 @@ impl Dentry for Ext4Dentry{
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
         let inode_num = self.get_inode()?.downcast_arc::<Ext4Inode>().map_err(|_| SysError::ENOENT)?.get_meta().ino as u32;
         let child_ino = old.get_inode()?.downcast_arc::<Ext4Inode>().map_err(|_| SysError::ENOENT)?.get_meta().ino as u32;
-        let inode_ref = sblock.ext4fs.get_inode_ref(child_ino);
+        let mut inode_ref = sblock.ext4fs.get_inode_ref(child_ino);
         if inode_ref.inode.is_file(){ 
-            let _ = sblock.ext4fs.file_remove(old.path().as_str());
+            let child_link_cnt = inode_ref.inode.links_count();
+            if child_link_cnt == 1 {
+                let old_size = inode_ref.inode.size();
+        
+                if old_size != 0 {
+                    let block_size = BLOCK_SIZE as u64;
+                    let new_blocks_cnt = ((0 + block_size - 1) / block_size) as u32;
+                    let old_blocks_cnt = ((old_size + block_size - 1) / block_size) as u32;
+                    let diff_blocks_cnt = old_blocks_cnt - new_blocks_cnt;
+        
+                    if diff_blocks_cnt > 0{
+                        let _ = sblock.ext4fs.extent_remove_space(&mut inode_ref, new_blocks_cnt, EXT_MAX_BLOCKS);
+                    }
+        
+                    inode_ref.inode.set_size(0);
+                    sblock.ext4fs.write_back_inode(&mut inode_ref); 
+                }
+            }
+
+            // load parent
+            let mut parent_inode_ref = sblock.ext4fs.get_inode_ref(inode_num);
+
+            let r = sblock.ext4fs.unlink(
+                &mut parent_inode_ref,
+                &mut inode_ref,
+                old.get_name_str(),
+            );
+
+            if r.is_err(){
+                return Err(SysError::ENOENT);
+            }
         }
         else{
             let _ = sblock.ext4fs.dir_remove(inode_num, old.get_name_str());
