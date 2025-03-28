@@ -83,7 +83,7 @@ pub trait File: Send + Sync{
         self.get_inner().dentry.clone()
     }
     /// Read file to `buf`
-    fn read(&self,   buf: &mut [u8]) -> usize{
+    fn read(&self, buf: &mut [u8]) -> usize{
         let mut offset = self.get_offset();
         let read_size = self.read_at(*offset, buf);
         *offset += read_size;

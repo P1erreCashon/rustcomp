@@ -1,5 +1,5 @@
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
-use crate::mm::{translated_refmut, translated_str,translated_ref};
+use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
     suspend_current_and_run_next,
@@ -13,7 +13,7 @@ use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 use crate::config::{PAGE_SIZE, UNAME};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
-use crate::mm::MapPermission;
+use crate::mm::{MapPermission, MapArea};
 use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname,TimeSpec};
 use bitflags::*;
@@ -228,67 +228,31 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         task_inner.heap_top = new_brk;
         return 0;
     }
-    
-    let mut need_align: bool = false;
-    // new_brk->align to 4K
-    let num = new_brk / PAGE_SIZE;
-    if num*PAGE_SIZE < new_brk {
-        //align_brk = (num + 1)*PAGE_SIZE;
-        need_align = true;
-    }
 
     if new_brk > cur_brk {
         let user_stack_bottom = task_inner.stack_bottom;
         
-        if new_brk >= user_stack_bottom { 
+        if new_brk >= user_stack_bottom -PAGE_SIZE { 
             return -1;
         }
-        // 确认新增虚拟页号范围
-        //let cur_page = (cur_brk + PAGE_SIZE - 1) / PAGE_SIZE;
-        //let new_page = (new_brk + PAGE_SIZE - 1) / PAGE_SIZE;
-        let cur_page = task_inner.max_data_addr / PAGE_SIZE;
-        let mut new_page = num;
-        if need_align {
-            new_page += 1;
-        }
-        let page_count = new_page - cur_page;
-        //println!("{} - {}", new_page, cur_page);
-        let mut all_vpn = Vec::<VirtPage>::new();
-        let mut all_ppn = Vec::<PhysPage>::new();
-        if page_count > 0 {
-            // 申请等量的物理页帧
-            /*let frames = frame_alloc_more(page_count);
-            if frames.is_none() {
-                return -1; // 物理内存不足
-            }
-            let frames = frames.unwrap();*/
-
-            // 在 memory_set 中映射新增的虚拟页号到物理页帧,如(31,32)->(31,30.9->31) 实际申请一页
-            //let _start_va: VirtAddr = (cur_brk).into();
-            //let _end_va: VirtAddr = (new_brk - PAGE_SIZE -1).into();
-            
-            for i in 0..page_count {
-                let vpn = VirtPage::from(cur_page + i);
-                //let ppn = frames[i].ppn;
-                let mp = MapPermission::R | MapPermission::W | MapPermission::U;
-                let ppn = task_inner.memory_set.map_page(vpn, mp, MappingSize::Page4KB);
-                all_vpn.push(vpn);
-                all_ppn.push(ppn);
-                //println!("vpn:{} ppn:{}",vpn,ppn);
-                /*task_inner.memory_set.map_page(
-                    vpn,
-                    ppn,
-                    MapPermission::R | MapPermission::W | MapPermission::U,
-                    MappingSize::Page4KB,
-                );*/
-            }
-        }
+        let cur_addr = VirtAddr::new(task_inner.max_data_addr).floor();
+        let new_addr = VirtAddr::new(new_brk).ceil();
+        
+        let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
+        let alloc_start_addr = task_inner.max_data_addr;
+        task_inner.memory_set.push_into_heaparea(
+            MapArea::new(
+                VirtAddr::new(alloc_start_addr), //向下
+                VirtAddr::new(new_brk), //向上
+                MapType::Framed,
+                MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
+            ),
+            None
+        );
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
-        /*for (vpn, ppn) in all_vpn.iter().zip(all_ppn.iter()) {
-            println!("VPN: {:?}, PPN: {:?}", vpn, ppn);
-        }*/
+        
         0
     }
     else if new_brk == cur_brk {

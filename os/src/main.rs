@@ -117,7 +117,7 @@ impl ArchInterface for ArchInterfaceImpl {
                 let args = ctx.args();
                 // get system call return value
                 // info!("syscall: {}", ctx[TrapFrameArgs::SYSCALL]);
-                let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2],args[3],args[4]]);
+                let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2],args[3],args[4],args[5]]);
                 // cx is changed during sys_exec, so we have to call it again
                 ctx[TrapFrameArgs::RET] = result as usize;
             }

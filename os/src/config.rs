@@ -6,7 +6,8 @@ use crate::task::Utsname;
 pub const USER_STACK_SIZE: usize = 4096 * 5;
 pub const KERNEL_STACK_SIZE: usize = 4096 *10;
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000;
-
+pub const USER_STACK_TOP: usize = 0x8000_0000;
+pub const USER_MMAP_TOP: usize = 0x6000_0000;
 pub const PAGE_SIZE: usize = 0x1000;
 #[allow(unused)]
 pub const USER_HEAP_SIZE: usize = 32768;

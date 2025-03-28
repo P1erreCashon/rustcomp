@@ -35,8 +35,11 @@ const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_BRK: usize = 214;
+const SYSCALL_MUNMAP: usize = 215;
+const SYSCALL_FORK: usize = 220;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
+const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
 
 mod fs;
@@ -48,7 +51,7 @@ use crate::task::{Tms, Utsname,TimeSpec};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
-pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
+pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
    // println!("syscallid:{}",syscall_id);
     let mut result:isize = 0;
     match syscall_id {
@@ -152,6 +155,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 5]) -> isize {
         SYSCALL_UNAME => {
             result = sys_uname(args[0] as *mut Utsname);
             log_debug!("syscall_uname result:{}",result);
+        }
+        SYSCALL_MMAP => {
+            result = sys_mmap(args[0] as *mut usize, args[1], args[2] as i32, args[3] as i32, args[4],args[5] as i32);
+            log_debug!("syscall_mmap result:{}",result);
+        }
+        SYSCALL_MUNMAP => {
+            result = sys_munmap(args[0] as *mut usize, args[1]);
+            log_debug!("syscall_munmap result:{}",result);
         }
         SYSCALL_GETDENTS64 => {
             result = sys_getdents(args[0] ,args[1] as *mut u8,args[2]);

@@ -1,7 +1,7 @@
 //!Implementation of [`TaskControlBlock`]
 use super::current_task;
 use super::{pid_alloc, PidHandle};
-use crate::config::{KERNEL_STACK_SIZE, USER_STACK_SIZE};
+use crate::config::{KERNEL_STACK_SIZE, USER_MMAP_TOP, USER_STACK_SIZE};
 use crate::fs::{Stdin, Stdout};
 use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
@@ -137,7 +137,61 @@ pub struct TaskControlBlock {
     // mutable
     inner: Mutex<TaskControlBlockInner>,
 }
-
+#[derive(Clone)]
+pub struct MapAreaControl {
+    pub mmap_top: usize,
+    pub mapfd: Vec<MapFdControl>,
+    mapfreeblock: Vec<MapFreeControl>,
+}
+impl MapAreaControl {
+    pub fn new() -> Self {
+        Self { 
+            mmap_top: USER_MMAP_TOP, 
+            mapfd: Vec::new(), 
+            mapfreeblock: Vec::new() 
+        }
+    }
+    // 找到第一个合适的块
+    pub fn find_block(&mut self, num: usize) -> usize {
+        for (i, block) in self.mapfreeblock.iter_mut().enumerate() {
+            if block.num >= num {
+                block.num -= num;
+                if block.num == 0 {
+                    // 移除当前块并返回起始dizhi
+                    return self.mapfreeblock.swap_remove(i).start_va;
+                } else {
+                    return block.start_va;
+                }
+            }
+        }
+        0
+    }
+    // 找fd
+    pub fn find_fd(&mut self, start: usize, len: &mut usize) -> isize {
+        for (i, block) in self.mapfd.iter_mut().enumerate() {
+            if start == block.start_va {
+                *len = self.mapfd[i].len;
+                return self.mapfd.swap_remove(i).fd as isize;
+            }
+        }
+        return -1;
+    }
+}
+///
+#[derive(Clone)]
+pub struct MapFdControl {
+    ///
+    pub fd: usize,
+    ///
+    pub len: usize,
+    ///
+    pub start_va: usize,
+}
+#[derive(Clone)]
+pub struct MapFreeControl {
+    pub start_va: usize,
+    pub num: usize,
+}
 pub struct TaskControlBlockInner {
     pub trap_cx: TrapFrame,
     #[allow(unused)]
@@ -156,6 +210,8 @@ pub struct TaskControlBlockInner {
     pub stack_bottom: usize,
     pub max_data_addr: usize,
     pub tms: Tms,
+    pub mapareacontrol: MapAreaControl,
+    //pub mmap_top: usize,
 }
 fn task_entry() {
     let task = current_task()
@@ -242,6 +298,8 @@ impl TaskControlBlock {
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
                     tms: Tms::new(),
+                    mapareacontrol: MapAreaControl::new(),
+                    //mmap_top: USER_MMAP_TOP,
                     }
                 ),
         };
@@ -269,6 +327,7 @@ impl TaskControlBlock {
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
         self.inner_exclusive_access().max_data_addr = heap_top;
         self.inner_exclusive_access().tms= Tms::new();
+        self.inner_exclusive_access().mapareacontrol = MapAreaControl::new();
         memory_set.activate();
         // push arguments on user stack
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
@@ -350,6 +409,8 @@ impl TaskControlBlock {
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
                     tms: Tms::from_other_task(&parent_inner.tms),
+                    mapareacontrol: parent_inner.mapareacontrol.clone(),
+                    //mmap_top: parent_inner.mmap_top,
                 })
             ,
         });

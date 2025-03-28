@@ -1,12 +1,15 @@
 //! File and filesystem-related syscalls
+use crate::config::USER_STACK_TOP;
 use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
 use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
-use crate::task::{current_task, current_user_token};
+use crate::task::{current_task, current_user_token, MapFdControl};
 use alloc::string::String;
 
+use arch::addr::{VirtAddr, VirtPage};
+use arch::PAGE_SIZE;
 use device::BLOCK_DEVICE;
 use vfs_defs::Kstat;
 use vfs_defs::MountFlags;
@@ -21,7 +24,9 @@ use crate::mm::frame_dealloc;
 use crate::mm::MapType;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::ptr;
+use core::ptr::{self, addr_of_mut, null_mut};
+use core::slice;
+use alloc::vec;
 
 //const HEAP_MAX: usize = 0;
 pub const AT_FDCWD: isize = -100;
@@ -44,11 +49,13 @@ pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
         // release current task TCB manually to avoid multi-borrow
         drop(inner);
         file.write(translated_byte_buffer(token, buf, len)) as isize
-    } else {
+    }
+     else {
         println!("write3");
         -1
     }
 }
+
 
 pub fn sys_read(fd: usize, buf: *mut u8, len: usize) -> isize {
     let token = current_user_token();
@@ -309,6 +316,146 @@ pub fn sys_fstat(fd:usize,kst:*mut Kstat)->isize{
     }
     return -1;
 }
+
+/*
+addr:
+指定映射被放置的虚拟地址，如果将addr指定为NULL，那么内核会为映射分配一个合适的地址。如果addr为一个非NULL值，
+则内核在选择地址映射时会将该参数值作为一个提示信息来处理。不管采用何种方式，内核会选择一个不与任何既有映射冲突的地
+址。在处理过程中， 内核会将指定的地址舍入到最近的一个分页边界处。
+length:
+参数指定了映射的字节数。尽管length 无需是一个系统分页大小的倍数，但内核会以分页大小为单位来创建映射，
+因此实际上length会被向上提升为分页大小的下一个倍数。
+prot: 映射的内存保护方式，可取：PROT_EXEC, PROT_READ, PROT_WRITE, PROT_NONE
+flags: 映射是否与其他进程共享的标志，
+fd: 文件句柄，
+off: 文件偏移量 =? (off,off+len)
+返回值：成功返回已映射区域的指针，失败返回-1;
+void *start, size_t len, int prot, int flags, int fd, off_t off
+long ret = syscall(SYS_mmap, start, len, prot, flags, fd, off);
+不需要实际分配物理地址
+*/
+pub fn sys_mmap(
+    _start: *mut usize,
+    len: usize,
+    _prot: i32,
+    _flags: i32,
+    fd: usize,
+    off: i32,
+) -> isize {
+    if len==0 || off!=0 {
+        return -1;
+    }
+    // 长度对齐
+    let mut num = len / PAGE_SIZE;//num:页数量
+    if num*PAGE_SIZE != len {
+        num = num + 1;
+    }
+    // 获取文件数据
+    let mut buf = vec![0u8; len];
+    let buf_ptr = buf.as_mut_ptr();
+
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if fd >= inner.fd_table.len() {
+        return -1;
+    }
+    if let Some(file) = &inner.fd_table[fd] {
+        let file = file.clone();
+        if !file.readable() {
+            return -1;
+        }
+        // release current task TCB manually to avoid multi-borrow
+        drop(inner);
+        file.read_at(0, &mut buf);
+    } else {
+        return -1;
+    }
+    
+    let mut inner = task.inner_exclusive_access();
+    let mut start = inner.mapareacontrol.find_block(num);// num是需要的页数目 
+    let mut move_top = false;
+    if start == 0 {
+        start = inner.mapareacontrol.mmap_top;
+        move_top = true;
+    }
+    if len + start >= USER_STACK_TOP {
+        // 与栈重叠
+        return -1;
+    }
+    let start_va = VirtAddr::new(start);
+    let end_va = VirtAddr::new(start + len);
+
+    inner.memory_set.push_into_mmaparea(
+        MapArea::new(
+            start_va,
+            end_va,
+            MapType::Framed,
+        MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
+        ),
+        unsafe {
+            Some(slice::from_raw_parts(buf_ptr, len))
+        }
+    );
+    if move_top {
+        inner.mapareacontrol.mmap_top += num * PAGE_SIZE;
+    }
+    inner.mapareacontrol.mapfd.push(
+        MapFdControl { 
+            fd: fd, 
+            len: len,
+            start_va: start
+        }
+    );
+    return start as isize;
+    
+}
+//void *start, size_t len
+//int ret = syscall(SYS_munmap, start, len);
+pub fn sys_munmap(start: *mut usize, _len: usize) -> isize {
+    if start as usize/ PAGE_SIZE *PAGE_SIZE != start as usize {
+        // 未对齐，地址错误
+        return -1;
+    }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    if inner.mapareacontrol.mmap_top <= start as usize {
+        // 地址越界
+        return -2;
+    }
+    // fd
+    let mut len: usize = 0;
+    let fd = inner.mapareacontrol.find_fd(start as usize, &mut len);
+    if fd < 0 {
+        println!("fd not found!");
+        return -3;
+    }
+    if fd >= inner.fd_table.len() as isize {
+        println!("fd out of range!");
+        return -4;
+    }
+    // read data from va
+    let mut buf = vec![0u8; len];
+    
+    if let Some(file) = &inner.fd_table[fd as usize] {
+        let file = file.clone();
+        if !file.writable() {
+            return -5;
+        }
+        // release current task TCB manually to avoid multi-borrow
+        drop(inner);
+        file.write_at(0, &mut buf);
+    } else {
+        return -6;
+    }
+    let mut inner = task.inner_exclusive_access();
+    let res = inner.memory_set.remove_map_area_by_vpn_start(VirtAddr::new(start as usize).into());
+    if res < 0 {
+        // 找不到地址
+        println!("vpn not found!");
+        return -7;
+    }
+    0
+
 
 pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->isize{
     #[derive(Debug, Clone, Copy)]
