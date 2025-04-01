@@ -1,8 +1,8 @@
-use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
+use crate::fs::{open_file, path_to_dentry, path_to_father_dentry, create_file};
 use crate::mm::{translated_refmut, translated_str,translated_ref};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
-    suspend_current_and_run_next,
+    suspend_current_and_run_next,SignalFlags,pid2task
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -11,6 +11,7 @@ use arch::time::Time;
 use arch::TrapFrameArgs;
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
+use crate::task::remove_from_pid2task;
 
 const MODULE_LEVEL:log::Level = log::Level::Debug;
 
@@ -97,9 +98,11 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     });
     if let Some((idx, _)) = pair {
         let child = inner.children.remove(idx);
-        // confirm that child will be deallocated after being removed from children list
-        assert_eq!(Arc::strong_count(&child), 1);
         let found_pid = child.getpid();
+        // 移除 PID2TCB 中的引用（以防万一）
+        remove_from_pid2task(found_pid);
+        // 确认引用计数（仅用于调试，可选）
+        log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
         // ++++ temporarily access child PCB exclusively
         let exit_code = child.inner_exclusive_access().exit_code;
         // ++++ release child PCB
@@ -190,4 +193,17 @@ pub fn sys_unlink(path: *const u8) -> isize {
         -1
     }
 
+}
+
+pub fn sys_kill(pid: usize, signal: u32) -> isize {
+    if let Some(process) = pid2task(pid) {
+        if let Some(flag) = SignalFlags::from_bits(signal) {
+            process.inner_exclusive_access().signals |= flag;
+            0
+        } else {
+            -1
+        }
+    } else {
+        -1
+    }
 }

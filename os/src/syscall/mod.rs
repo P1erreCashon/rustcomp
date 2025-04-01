@@ -19,6 +19,7 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_FORK: usize = 220;
@@ -31,6 +32,7 @@ mod process;
 use fs::*;
 use process::*;
 const MODULE_LEVEL:log::Level = log::Level::Info;
+use crate::task::{pid2task, SignalFlags, suspend_current_and_run_next, exit_current_and_run_next, check_signals_error_of_current};
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
@@ -78,6 +80,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             log_debug!("syscall_yield");
             sys_yield();
         },
+        SYSCALL_KILL => {
+            log_debug!("syscall_kill pid={} signal={}", args[0], args[1]);
+            sys_kill(args[0], args[1] as u32);
+        },
         SYSCALL_GET_TIME => {
             result = sys_get_time();
             log_debug!("syscall_get_time result:{}",result);
@@ -99,6 +105,12 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
             log_debug!("syscall_waitpid result:{}",result);
         },
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
+    }
+    // 在系统调用返回前检查信号
+    if let Some((code, msg)) = check_signals_error_of_current() {
+        println!("Process terminated due to signal: {}", msg);
+        exit_current_and_run_next(code as i32);
+        unreachable!("Should have exited");
     }
     result
 }

@@ -18,6 +18,7 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+use crate::task::SignalFlags;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -59,6 +60,8 @@ pub struct TaskControlBlockInner {
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
+    pub signals: SignalFlags, // 新增：未处理的信号
+    pub killed: bool,         // 新增：是否被信号终止
 
     pub cwd:Arc<dyn Dentry>,//工作目录
 }
@@ -143,6 +146,8 @@ impl TaskControlBlock {
                     ],
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                 })
             ,
         };
@@ -241,6 +246,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                 })
             ,
         });
