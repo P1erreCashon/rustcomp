@@ -34,6 +34,7 @@ const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_CLOCK_GETTIME: usize =113;
+const SYSCALL_SYSLOG: usize = 116;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
 const SYSCALL_SETUID: usize =146;
@@ -52,6 +53,7 @@ const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
+const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_GET_RANDOM: usize = 278;
@@ -59,6 +61,7 @@ const SYSCALL_GET_RANDOM: usize = 278;
 mod fs;
 mod process;
 
+use arch::addr::VirtAddr;
 use fs::*;
 use process::*;
 use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname, SysInfo}};
@@ -249,6 +252,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SYSINFO => {
             result = sys_info(args[0] as *mut SysInfo);
             log_debug!("syscall_info result:{}",result);
+        }
+        SYSCALL_SYSLOG => {
+            result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
+            log_debug!("syscall_log result:{}",result);
+        }
+        SYSCALL_MPROTECT => {
+            result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
+            log_debug!("syscall_mprotect result:{}",result);
         }
 
         _ => panic!("Unsupported syscall_id: {}", syscall_id),

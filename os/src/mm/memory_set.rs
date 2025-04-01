@@ -463,6 +463,24 @@ impl Into<MappingFlags> for MapPermission {
         flags
     }
 }
+///
+pub fn from_prot(prot: i32) -> MapPermission {
+    let mut perm = MapPermission{bits: 0u8};
+    if prot & 1 != 0 {
+        perm |= MapPermission::R; // PROT_READ
+    }
+    if prot & 2 != 0 {
+        perm |= MapPermission::W; // PROT_WRITE
+    }
+    if prot & 4 != 0 {
+        perm |= MapPermission::X; // PROT_EXEC
+    }
+    if prot & 8 !=0 {
+        perm |= MapPermission::U;
+    }
+    
+    perm
+}
 // 对齐到PAGE_SIZE
 #[allow(unused)]
 fn align_up(x: u64, align: usize) -> u64 {

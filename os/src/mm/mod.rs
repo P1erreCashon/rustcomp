@@ -16,6 +16,6 @@ mod vpn_range;
 use arch::addr::{PhysPage, VirtAddr, VirtPage,PhysAddr};
 pub use frame_allocator::{frame_alloc,frame_alloc_more, frame_dealloc, FrameTracker,init_frame_allocator,frame_alloc_persist};
 pub use heap_allocator::init_heap;
-pub use memory_set::{MapPermission, MemorySet, MapType, MapArea};
+pub use memory_set::{MapPermission, MemorySet, MapType, MapArea, from_prot};
 use page_table::PTEFlags;
 pub use page_table::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
