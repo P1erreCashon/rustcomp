@@ -33,7 +33,7 @@ use arch::KContext;
 use arch::TrapFrameArgs;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager,wakeup_task,get_task_from_pid, pid2task, insert_into_pid2task, remove_from_pid2task};
-pub use task::{TaskControlBlock, TaskStatus, Tms, Utsname,TimeSpec, MapFdControl};
+pub use task::{TaskControlBlock, TaskStatus, Tms, Utsname,TimeSpec, MapFdControl, SysInfo};
 use vfs_defs::OpenFlags;
 pub use manager::add_task;
 pub use pid::{pid_alloc,  PidAllocator, PidHandle};

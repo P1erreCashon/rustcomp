@@ -24,6 +24,7 @@ const SYSCALL_BRK: usize = 214;
 const SYSCALL_FORK: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
+const SYSCALL_GET_RANDOM: usize = 278;
 
 #[cfg(target_arch = "riscv64")]
 fn syscall(id: usize, args: [usize; 3]) -> isize {
@@ -133,4 +134,8 @@ pub fn sys_times(tms: *mut Tms) -> isize {
 
 pub fn sys_uname(mes: *mut Utsname) -> isize {
     syscall(SYSCALL_UNAME, [mes as usize, 0, 0])
+}
+
+pub fn sys_random(buf: *mut u8, len: usize, flags: usize) -> isize {
+    syscall(SYSCALL_GET_RANDOM, [buf as usize, len, flags])
 }

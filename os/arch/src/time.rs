@@ -4,6 +4,9 @@ pub struct Time(pub(crate) usize);
 impl Time {
     /// Converts hardware ticks to nanoseconds.
     #[inline]
+    pub fn to_sec(&self) -> usize{
+        self.0 / Self::get_freq()
+    }
     pub fn to_msec(&self) -> usize {
         self.0 * 1_000 / Self::get_freq()
     }
