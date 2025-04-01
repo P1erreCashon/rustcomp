@@ -33,6 +33,8 @@ const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_SETGID: usize = 144;
+const SYSCALL_SETUID: usize =146;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
@@ -219,6 +221,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_PRLIMIT64=>{//
             result = sys_prlimit64(args[0], args[1] as i32, args[2] as *const RLimit, args[3] as *mut RLimit);
             log_debug!("syscall_prlimit64 result:{:x}",result);
+        }
+        SYSCALL_SETGID => {// 无
+            result = 0;
+            log_debug!("syscall_setgid result:{}",result);
+        }
+        SYSCALL_SETUID => {// 无
+            result = 0;
+            log_debug!("syscall_setuid result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
