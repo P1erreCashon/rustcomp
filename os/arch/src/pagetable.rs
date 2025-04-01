@@ -1,4 +1,4 @@
-use core::ops::Deref;
+use core::ops::{Deref,DerefMut};
 
 use crate::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use crate::api::ArchInterface;
@@ -276,6 +276,11 @@ impl Deref for PageTableWrapper {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+impl DerefMut for PageTableWrapper {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

@@ -101,7 +101,7 @@ pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<dyn File>>{//还需
         }
     } else {
         if let Some(dentry) = path_to_dentry(path){
-            if dentry.is_dir() && flags.bits() == 0{
+            if dentry.is_dir() && ((flags.bits()&OpenFlags::RDONLY.bits()) != OpenFlags::RDONLY.bits()){
                 return None;
             }
             if flags.contains(OpenFlags::TRUNC) && dentry.is_file(){
@@ -197,14 +197,24 @@ fn path_to_dirent_(path:&str,
     }
     while let Some(new_path) = skipelem(current,name){
         current = new_path;
+        if name == "."{
+            continue;
+        }
+        if name == ".."{
+            if let Some(father) = dentry.get_father(){
+                dentry = father;
+                continue;
+            }else{
+                return None;
+            }
+        }
         if to_father && current.len() == 0 {
             return Some(dentry);
         }
-        if let Ok(new_dentry) = dentry.lookup(name){
-            dentry = new_dentry;
-        }
-        else{
-            return None;
+        let r = dentry.lookup(name);
+        match r {
+            Ok(new_dirent)=>dentry = new_dirent,
+            Err(_e)=>{return None;}
         }
         
     }

@@ -9,3 +9,5 @@ system-result = { path = "../system-result" }
 spin = "0.7.0"
 bitflags = "2.5"
 downcast-rs = { version = "1.2", default-features = false }
+logger = { path = "../logger" }
+log = "0.4"

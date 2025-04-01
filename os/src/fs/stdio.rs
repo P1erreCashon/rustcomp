@@ -1,8 +1,10 @@
 //!Stdin & Stdout
 //use crate::drivers::chardevice::{CharDevice, UART};
 use arch::console_getchar;
+use spin::{Mutex, MutexGuard};
 use crate::task::suspend_current_and_run_next;
 use vfs_defs::{File,UserBuffer,FileInner};
+use lazy_static::*;
 ///Standard input
 pub struct Stdin;
 ///Standard output
@@ -48,6 +50,11 @@ impl File for Stdin {
     }
 }
 
+lazy_static! {
+            pub static ref STDOUTOFF: Mutex<usize> =
+            Mutex::new(0);
+    }
+
 impl File for Stdout {
     fn readable(&self) -> bool {
         false
@@ -71,6 +78,10 @@ impl File for Stdout {
         unimplemented!()
     }
     fn write_at(&self, _offset: usize, _buf: &[u8])->usize {
-        unimplemented!()
+        print!("{}", core::str::from_utf8(_buf).unwrap());
+        _buf.len()
+    }
+    fn get_offset(&self)->MutexGuard<usize> {
+        STDOUTOFF.lock()
     }
 }

@@ -1,8 +1,8 @@
-
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 BASE_ADDRESS = 0x10000;
+USER_HEAP_SIZE = 32768;
 
 SECTIONS
 {
@@ -30,6 +30,9 @@ SECTIONS
     .bss ALIGN(4K): {
         *(.bss .bss.*)
         *(.sbss .sbss.*)
+        PROVIDE(HEAP_START = .);  /* 定义 HEAP_START 符号 */
+        . += USER_HEAP_SIZE;      /* 为 HEAP_SPACE 预留空间 */
+        PROVIDE(HEAP_END = .);    /* 定义 HEAP_END 符号 */
     }
     /DISCARD/ : {
         *(.eh_frame)

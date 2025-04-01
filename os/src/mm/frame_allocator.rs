@@ -7,9 +7,10 @@ use spin::Mutex;
 use core::{fmt::{self, Debug, Formatter},mem::size_of};
 use lazy_static::*;
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// manage a frame which has the same lifecycle as the tracker
+#[derive(Clone)]
 pub struct FrameTracker {
     ///
     pub ppn: PhysPage,
@@ -65,8 +66,9 @@ impl FrameAllocator for StackFrameAllocator {
         }
     }
     fn alloc(&mut self) -> Option<PhysPage> {
+        //println!("申请 recycled frames: {:x?}", self.recycled);
         if let Some(ppn) = self.recycled.pop() {
-            log_debug!("dealloc phys frame ppn:0x{:x}",ppn);
+            log_debug!("alloc:0x{:x}",ppn);
             Some(ppn.into())
         } else if self.current == self.end {
             None
@@ -75,6 +77,7 @@ impl FrameAllocator for StackFrameAllocator {
             log_debug!("dealloc phys frame ppn:0x{:x}",self.current-1);
             Some((self.current - 1).into())
         }
+        
     }
     fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPage>> {
         if self.current + pages >= self.end {
@@ -90,6 +93,8 @@ impl FrameAllocator for StackFrameAllocator {
         let ppn = ppn.as_num();
         log_debug!("dealloc phys frame ppn:0x{:x}",ppn);
         // validity check
+        //println!("current={:x}",self.current);
+        //println!("释放 recycled frames: {:x?}", self.recycled);
         if ppn >= self.current || self.recycled.iter().any(|&v| v == ppn) {
             panic!("Frame ppn={:#x} has not been allocated!", ppn);
         }

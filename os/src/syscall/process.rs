@@ -1,22 +1,73 @@
-use crate::fs::{open_file, path_to_dentry, path_to_father_dentry, create_file};
-use crate::mm::{translated_refmut, translated_str,translated_ref};
+use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
+use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    add_task, current_task, current_user_token, exit_current_and_run_next,
-    suspend_current_and_run_next,SignalFlags,pid2task
+    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
 };
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use arch::time::Time;
-use arch::TrapFrameArgs;
+use arch::time::{self, Time};
+use arch::{TrapFrameArgs,PAGE_SIZE};
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
-use crate::task::remove_from_pid2task;
+use crate::config::{UNAME, USER_STACK_SIZE,RLimit,Resource};
+use arch::addr::{PhysPage, VirtAddr, VirtPage};
+use crate::mm::{MapPermission, MapArea};
+use arch::pagetable::MappingSize;
+use crate::task::{Tms, Utsname,TimeSpec};
+use bitflags::*;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+bitflags! {
+    /// Defined in <bits/sched.h>
+    pub struct CloneFlags: u64 {
+        /// Set if VM shared between processes.
+        const VM = 0x0000100;
+        /// Set if fs info shared between processes.
+        const FS = 0x0000200;
+        /// Set if open files shared between processes.
+        const FILES = 0x0000400;
+        /// Set if signal handlers shared.
+        const SIGHAND = 0x00000800;
+        /// Set if a pidfd should be placed in parent.
+        const PIDFD = 0x00001000;
+        /// Set if we want to have the same parent as the cloner.
+        const PARENT = 0x00008000;
+        /// Set to add to same thread group.
+        const THREAD = 0x00010000;
+        /// Set to shared SVID SEM_UNDO semantics.
+        const SYSVSEM = 0x00040000;
+        /// Set TLS info.
+        const SETTLS = 0x00080000;
+        /// Store TID in userlevel buffer before MM copy.
+        const PARENT_SETTID = 0x00100000;
+        /// Register exit futex and memory location to clear.
+        const CHILD_CLEARTID = 0x00200000;
+        /// Store TID in userlevel buffer in the child.
+        const CHILD_SETTID = 0x01000000;
+        /// Create clone detached.
+        const DETACHED = 0x00400000;
+        /// Set if the tracing process can't
+        const UNTRACED = 0x00800000;
+        /// New cgroup namespace.
+        const NEWCGROUP = 0x02000000;
+        /// New utsname group.
+        const NEWUTS = 0x04000000;
+        /// New ipcs.
+        const NEWIPC = 0x08000000;
+        /// New user namespace.
+        const NEWUSER = 0x10000000;
+        /// New pid namespace.
+        const NEWPID = 0x20000000;
+        /// New network namespace.
+        const NEWNET = 0x40000000;
+        /// Clone I/O context.
+        const IO = 0x80000000 ;
+    }
+}
 
 pub fn sys_exit(exit_code: i32) -> ! {
-    exit_current_and_run_next(exit_code);
+    exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
     panic!("Unreachable in sys_exit!");
 }
 
@@ -25,16 +76,31 @@ pub fn sys_yield() -> isize {
     0
 }
 
-pub fn sys_get_time() -> isize {
-//    get_time_ms() as isize
-    Time::now().to_msec() as isize
+pub fn sys_get_time(ts:*mut TimeSpec) -> isize {
+    let token = current_user_token();
+    if ts.is_null(){
+        return -1;
+    }
+    let ts = translated_refmut(token, ts);
+    let usec = Time::now().to_usec();
+    *ts = TimeSpec{
+        sec:usec/1000000,
+        usec,
+    };
+    0
 }
 
 pub fn sys_getpid() -> isize {
     current_task().unwrap().pid.0 as isize
 }
 
-pub fn sys_fork() -> isize {
+pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,ctid:*mut i32) -> isize {
+    let flags = CloneFlags::from_bits(flags as u64 & !0xff);
+    let token = current_user_token();
+    if flags.is_none(){
+        return -1;
+    }
+    let flags = flags.unwrap();
     let current_task = current_task().unwrap();
     let new_task = current_task.fork();    
     let new_pid = new_task.pid.0;
@@ -44,6 +110,16 @@ pub fn sys_fork() -> isize {
     // for child process, fork returns 0
     //trap_cx.x[10] = 0;
     trap_cx[TrapFrameArgs::RET] = 0;
+    if !stack_ptr.is_null(){
+        let new_sp = translated_ref(token, stack_ptr);
+        trap_cx[TrapFrameArgs::SP] = new_sp as *const u8 as usize;
+    }
+    if flags.contains(CloneFlags::PARENT_SETTID) {
+        *translated_refmut(token, ptid) = new_pid as i32;
+    }
+    if flags.contains(CloneFlags::CHILD_SETTID) {
+        *translated_refmut(token, ctid) = new_pid as i32;
+    }
     // add new task to scheduler
     add_task(new_task);
     new_pid as isize
@@ -80,9 +156,9 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     let task = current_task().unwrap();
     // find a child process
-    log::debug!("waitpid pid={}",pid);
+    log_debug!("waitpid pid={}",pid);
     // ---- access current PCB exclusively
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
     if !inner
         .children
         .iter()
@@ -91,26 +167,36 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         return -1;
         // ---- release current PCB
     }
-    let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB exclusively
-        p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
-    });
-    if let Some((idx, _)) = pair {
-        let child = inner.children.remove(idx);
-        let found_pid = child.getpid();
-        // 移除 PID2TCB 中的引用（以防万一）
-        remove_from_pid2task(found_pid);
-        // 确认引用计数（仅用于调试，可选）
-        log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
-        // ++++ temporarily access child PCB exclusively
-        let exit_code = child.inner_exclusive_access().exit_code;
-        // ++++ release child PCB
-        *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
-        found_pid as isize
-    } else {
-        -2
+    drop(inner);
+    loop{
+        let mut inner = task.inner_exclusive_access();
+        let pair = inner.children.iter().enumerate().find(|(_, p)| {
+            // ++++ temporarily access child PCB exclusively
+            p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
+            // ++++ release child PCB
+        });
+        if let Some((idx, _)) = pair {
+            let child = inner.children.remove(idx);
+            // confirm that child will be deallocated after being removed from children list
+            assert_eq!(Arc::strong_count(&child), 1);
+            let found_pid = child.getpid();
+            // 移除 PID2TCB 中的引用（以防万一）
+            remove_from_pid2task(found_pid);
+            // 确认引用计数（仅用于调试，可选）
+            log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
+            // ++++ temporarily access child PCB exclusively
+            let exit_code = child.inner_exclusive_access().exit_code;
+            // ++++ release child PCB
+            if exit_code_ptr != core::ptr::null_mut(){
+                *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+            }
+            return found_pid as isize
+        } else {
+            drop(inner);
+            suspend_current_and_run_next();
+        }
     }
+
     // ---- release current PCB automatically
 }
 
@@ -123,9 +209,6 @@ pub fn sys_chdir(path: *const u8) -> isize {
         let task = current_task().unwrap();
         let mut task_inner = task.inner_exclusive_access();
         task_inner.cwd = dentry;
-        for name in task_inner.cwd.clone().ls() {
-            println!("{}", name);
-        }
         0
     }
     else {
@@ -134,67 +217,205 @@ pub fn sys_chdir(path: *const u8) -> isize {
 
 }
 
-///
-pub fn sys_link(old_path: *const u8,new_path:*const u8) -> isize {
-    let token = current_user_token();
-    let old_path = translated_str(token, old_path);
-    let new_path = translated_str(token, new_path);
-    if let Some(dentry) = path_to_dentry(&old_path){
-        if dentry.is_dir(){
-            drop(dentry);
-            return -1
+
+pub fn sys_brk(new_brk:  usize) -> isize {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    let cur_brk = task_inner.heap_top;
+    //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
+    if new_brk == 0 {
+        return cur_brk as isize;
+    }
+    
+    if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
+        task_inner.heap_top = new_brk;
+    //    return 0;
+        return new_brk as isize;
+    }
+
+    if new_brk > cur_brk {
+        let user_stack_bottom = task_inner.stack_bottom;
+        
+        if new_brk >= user_stack_bottom -PAGE_SIZE { 
+            return cur_brk as isize;
+//            return -1;
         }
-        if let Some(new_dentry) = path_to_dentry(&new_path){
-            if dentry.link(&new_dentry).is_err(){
-                return -1;
+        let cur_addr = VirtAddr::new(task_inner.max_data_addr).floor();
+        let new_addr = VirtAddr::new(new_brk).ceil();
+        
+        let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
+        let alloc_start_addr = task_inner.max_data_addr;
+        task_inner.memory_set.push_into_heaparea(
+            MapArea::new(
+                VirtAddr::new(alloc_start_addr), //向下
+                VirtAddr::new(new_brk), //向上
+                MapType::Framed,
+                MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
+            ),
+            None
+        );
+        task_inner.max_data_addr += PAGE_SIZE*page_count;
+        //println!("max_data_addr = {}", task_inner.max_data_addr);
+        task_inner.heap_top = new_brk;
+        return new_brk as isize;
+     //   0
+    }
+    else if new_brk == cur_brk {
+          return cur_brk as isize;
+    //    -1
+    }
+    else {// 不考虑不合理的减小
+        // 确认需要释放的虚页号
+        /*let cur_page = cur_brk / PAGE_SIZE;
+        
+        let new_page = new_brk / PAGE_SIZE ; 
+        let page_count = cur_page - new_page;
+        
+        if page_count > 0 {
+            // 解除映射并释放物理页帧
+            for i in 1..(page_count + 1) {
+                let vpn = VirtPage::from(cur_page - i);
+                task_inner.memory_set.unmap_page(vpn);
+                    //frame_dealloc(ppn);
             }
-            return 0;
-        }
+        }*/
+        // 不释放
+        // new_brk 应当大于数据段起始 未做判断
+        task_inner.heap_top = new_brk;
+        return new_brk as isize;
+    //   0
+    }
+}
+
+pub fn sys_times(tms_ptr: *mut Tms) -> isize {
+    let binding = current_task().unwrap();
+    let token = current_user_token();
+    let taskinner = binding.inner_exclusive_access();
+    if tms_ptr.is_null(){
         return -1;
     }
-    else {
-        -1
-    }
-
+    // 安全地获取一个可变引用
+    let tms = translated_refmut(token, tms_ptr);
+    // 当前 - 起始
+    tms.tms_utime = Time::now().to_msec() as usize - taskinner.tms.tms_utime;
+    tms.tms_stime = Time::now().to_msec() as usize - taskinner.tms.tms_stime;
+    tms.tms_cutime = Time::now().to_msec() as usize - taskinner.tms.tms_cutime;
+    tms.tms_cstime = Time::now().to_msec() as usize - taskinner.tms.tms_cstime;
+    tms.tms_cutime as isize
 }
 
-///
-pub fn sys_mkdir(path: *const u8) -> isize {
-    let token = current_user_token();
-    let path = translated_str(token, path);
-    if let Some(_inode) =create_file(path.as_str(), vfs_defs::DiskInodeType::Directory){
-        0
-    }
-    else {
-        -1
-    }
-
+pub fn sys_uname(mes: *mut Utsname) -> isize {
+    let uname = unsafe {
+        if mes.is_null() {
+            return -1;
+        }
+        &mut *mes
+    };
+    //
+    uname.copy_from(&UNAME);
+    0
 }
 
-///
-pub fn sys_unlink(path: *const u8) -> isize {
-    let token = current_user_token();
-    let path = translated_str(token, path);
-    println!("unlink:{}",path);
-    let mut name = String::new();
-    if let Some(father) = path_to_father_dentry(&path,&mut name){
-        if name.eq(".") || name.eq(".."){
-            return -1
-        }
-        if let Some(old) = path_to_dentry(&path){
-            if father.unlink(&old).is_err(){
-                return -1;
-            }
-            return 0;
-        }
+
+/* for nanosleep:
+struct timespec {
+	time_t tv_sec;        /* 秒 */
+	long   tv_nsec;       /* 纳秒, 范围在0~999999999 */
+};
+*/
+pub fn sys_nanosleep(timespec:*const TimeSpec)->isize{
+    if timespec.is_null(){
         return -1;
     }
-    else {
-        -1
+    let token = current_user_token();
+    let timespec = translated_ref(token, timespec);
+    if timespec.usec > 99999999{
+        return -1;
     }
-
+    let total_time = timespec.sec * 1000000000 + timespec.usec;
+    let start_time = Time::now().to_nsec();
+    loop{
+        let current_time = Time::now().to_nsec();
+        if current_time - start_time < total_time{
+            suspend_current_and_run_next();
+        }
+        else{
+            return 0;
+        }
+    }
 }
 
+pub fn sys_getppid()->isize{
+    let current = current_task().unwrap();
+    let inner = current.inner_exclusive_access();
+    if inner.parent.is_none(){
+        return -1;
+    }
+    let parent = inner.parent.clone().unwrap().upgrade().unwrap();
+    let ret = parent.pid.0 as isize;
+    ret
+}
+
+pub fn sys_set_tid_address(tidptr:usize)->isize{
+    let current = current_task().unwrap();
+    let mut inner = current.inner_exclusive_access();
+    inner.tidaddress.clear_child_tid = Some(tidptr);
+    tidptr as isize
+}
+
+
+pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize{
+    let task;
+    let token = current_user_token();
+    if pid == 0{
+        task = current_task().unwrap();
+    }
+    else {
+        if let Some(t) = crate::task::get_task_from_pid(pid){
+            task = t;
+        }
+        else {
+            return -1;
+        }
+    }
+    let mut inner = task.inner_exclusive_access();
+    let resource = Resource::new(resource);
+    if resource.is_none(){
+        return -1;
+    }
+    let resource = resource.unwrap();
+    if !old_limit.is_null(){
+        let limit;
+        match resource{
+            Resource::STACK=>{
+                limit = RLimit{
+                    rlimit_cur:USER_STACK_SIZE,
+                    rlimit_max:USER_STACK_SIZE,
+                }
+            },
+            Resource::NOFILE=>{
+                limit = inner.fd_table_rlimit;
+            }
+            _=>{
+                limit = RLimit{
+                    rlimit_cur:0,
+                    rlimit_max:0
+                }
+            }
+        };
+        *translated_refmut(token,old_limit) = limit;
+    }
+    if !new_limit.is_null(){
+        let limit = *translated_ref(token, new_limit);
+        match resource {
+            Resource::NOFILE=>{
+                inner.set_fd_rlimit(limit);
+            },
+            _=>{}
+        }
+    }
+    return 0;
+} 
 pub fn sys_kill(pid: usize, signal: u32) -> isize {
     if let Some(process) = pid2task(pid) {
         if let Some(flag) = SignalFlags::from_bits(signal) {

@@ -1,5 +1,3 @@
-use core::mem;
-
 use super::{
     block_cache_sync_all, get_block_cache, BlockDevice, DirEntry, DiskInode,
     EasyFileSystem, DIRENT_SZ,INODE_DIRECT_COUNT,INDIRECT1_BOUND,INDIRECT2_BOUND,IndirectBlock,DataBlock,INODE_INDIRECT1_COUNT,INODE_INDIRECT2_COUNT,
@@ -12,6 +10,7 @@ use lazy_static::*;
 use spin::{Mutex, MutexGuard};
 use vfs_defs::{Inode, InodeMeta, InodeMetaInner, SuperBlock, SuperBlockInner,DiskInodeType,InodeState};
 use device::BLOCK_DEVICE;
+use system_result::{SysResult,SysError};
 
 pub struct InodeInner{
     pub valid:bool,
@@ -38,6 +37,29 @@ impl Inode for EfsInode{
     fn get_meta(&self) -> &InodeMeta {
         &self.meta
     }
+    fn get_attr(&self)->SysResult<vfs_defs::Kstat> {
+        Ok(vfs_defs::Kstat{
+                st_dev: 0,
+    st_ino: 0,
+    st_mode: 0,
+    st_nlink: 0,
+    st_uid: 0,
+    st_gid: 0,
+    st_rdev: 0,
+    __pad: 0,
+    st_size: 0,
+    st_blksize: 0,
+    __pad2: 0,
+    st_blocks: 0,
+    st_atime_sec: 0,
+    st_atime_nsec: 0,
+    st_mtime_sec: 0,
+    st_mtime_nsec: 0,
+    st_ctime_sec: 0,
+    st_ctime_nsec: 0,
+    unused: 0,
+        })
+    }
     /// Clear the data in current inode
     fn clear(&self) {
         let (mut inner,mut meta) = self.lock_inner();
@@ -51,6 +73,9 @@ impl Inode for EfsInode{
     }
     fn load_from_disk(&self) {
         self.lock_inner();
+    }
+    fn get_size(&self) -> u32 {
+        0
     }
 }
 
@@ -90,7 +115,7 @@ impl EfsInode {
         ino:usize,
         superblock:Arc<dyn SuperBlock>,
     ) -> Self {
-        let (block_id,block_offset) = superblock.get_disk_inode_pos(ino as u32);
+        let (block_id,block_offset) = superblock.clone().downcast_arc::<EfsSuperBlock>().map_err(|_| SysError::ENOTDIR).unwrap().get_disk_inode_pos(ino as u32);
         Self {
             block_id: block_id as usize,
             block_offset,
@@ -100,8 +125,8 @@ impl EfsInode {
             meta:InodeMeta::new(ino, superblock)
         }
     }
-    fn get_super(&self)->Arc<dyn SuperBlock>{
-        self.meta.superblock.upgrade().unwrap()
+    fn get_super(&self)->Arc<EfsSuperBlock>{
+        self.meta.superblock.upgrade().unwrap().downcast_arc::<EfsSuperBlock>().map_err(|_| SysError::ENOTDIR).unwrap()
     }
     fn get_dev(&self)->Arc<dyn BlockDevice>{
         self.meta.superblock.upgrade().unwrap().get_inner().dev.clone()
@@ -313,7 +338,7 @@ impl EfsInode {
                 .lock()
                 .modify(0, |indirect2: &mut IndirectBlock| {
                     if indirect2[last / INODE_INDIRECT1_COUNT] == 0{
-                        indirect2[last / INODE_INDIRECT1_COUNT] = self.meta.superblock.upgrade().unwrap().alloc_data();
+                        indirect2[last / INODE_INDIRECT1_COUNT] = self.get_super().alloc_data();
                     }
                     indirect2[last / INODE_INDIRECT1_COUNT]
                 });

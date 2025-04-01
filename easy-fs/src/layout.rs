@@ -93,27 +93,30 @@ impl EfsSuperBlock{
         // release efs lock
         Arc::new(EfsInode::new(0, self))
 /*         Inode::new(block_id, block_offset, Arc::clone(efs), block_device) */
+    }    
+    /// Allocate a new inode
+    pub fn alloc_inode(&self) -> u32 {//返回inode的id
+        self.fs.lock().alloc_inode()
     }
+
+    /// Allocate a data block
+    pub fn alloc_data(&self) -> u32 {//返回block的块号
+        self.fs.lock().alloc_data()
+    }
+    ///
+    pub fn dealloc_data(&self, block_id: u32) {
+        self.fs.lock().dealloc_data(block_id);
+    }
+    ///
+    pub fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {
+        self.fs.lock().get_disk_inode_pos(inode_id)
+    }   
 }
 impl SuperBlock for EfsSuperBlock{
     fn get_inner(&self) -> &SuperBlockInner {
         &self.inner
     }
-    /// Allocate a new inode
-    fn alloc_inode(&self) -> u32 {//返回inode的id
-        self.fs.lock().alloc_inode()
-    }
-
-    /// Allocate a data block
-    fn alloc_data(&self) -> u32 {//返回block的块号
-        self.fs.lock().alloc_data()
-    }
-    fn dealloc_data(&self, block_id: u32) {
-        self.fs.lock().dealloc_data(block_id);
-    }
-    fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {
-        self.fs.lock().get_disk_inode_pos(inode_id)
-    }    
+ 
 
 }
 /*
@@ -131,8 +134,8 @@ pub enum DiskInodeType {
 
 /// A indirect block
 pub type IndirectBlock = [u32; BLOCK_SZ / 4];
-/// A data block
-pub type DataBlock = [u8; BLOCK_SZ];
+// A data block
+//pub type DataBlock = [u8; BLOCK_SZ];
 /// A disk inode
 #[repr(C)]
 pub struct DiskInode {

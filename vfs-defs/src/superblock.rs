@@ -1,6 +1,7 @@
 use alloc::sync::{Weak,Arc};
 use device::BlockDevice;
 use super::{FileSystemType,Dentry,Inode};
+use downcast_rs::{impl_downcast, DowncastSync};
 use spin::Once;
 ///
 pub struct SuperBlockInner{
@@ -12,26 +13,9 @@ pub struct SuperBlockInner{
     pub root:Once<Arc<dyn Dentry>>
 }
 ///
-pub trait SuperBlock : Send + Sync {
+pub trait SuperBlock : Send + Sync + DowncastSync {
     ///
     fn get_inner(&self) -> &SuperBlockInner {
-        unimplemented!()
-    }
-    /// Allocate a new inode
-    fn alloc_inode(&self) -> u32 {//返回inode的id
-        unimplemented!()
-    }
-
-    /// Allocate a data block
-    fn alloc_data(&self) -> u32 {//返回block的块号
-        unimplemented!()
-    }
-    /// Deallocate a data block
-    fn dealloc_data(&self, block_id: u32) {
-        unimplemented!()
-    }
-    /// Get inode by id
-    fn get_disk_inode_pos(&self, inode_id: u32) -> (u32, usize) {//输入inode的id返回inode的位置（磁盘块号+偏移量（单位为字节））
         unimplemented!()
     }
     ///
@@ -39,6 +23,8 @@ pub trait SuperBlock : Send + Sync {
         self.get_inner().root.call_once(|| root_dentry);
     }
 }
+
+
 
 impl SuperBlockInner{
     ///
@@ -50,3 +36,5 @@ impl SuperBlockInner{
         }
     }
 }
+
+impl_downcast!(sync SuperBlock);

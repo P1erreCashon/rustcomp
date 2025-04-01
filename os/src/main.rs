@@ -36,8 +36,8 @@ mod board;
 
 #[macro_use]
 mod console;
-#[macro_use]
-mod logging;
+//#[macro_use]
+//mod logging;
 mod config;
 mod drivers;
 pub mod fs;
@@ -46,9 +46,11 @@ pub mod mm;
 pub mod sync;
 pub mod syscall;
 pub mod task;
-//pub mod trap;
 
-
+#[macro_use]
+extern  crate logger;
+use logger::*;
+use task::current_task;
 use core::arch::global_asm;
 
 //use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
@@ -67,6 +69,7 @@ use fdt::node::FdtNode;
 use lazy_static::*;
 //use sync::IntrCell;
 use arch::TrapType::*;
+use log::Record;
 //lazy_static! {
     //
   //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
@@ -86,7 +89,14 @@ use arch::TrapType::*;
 //     fn _ebss();
 //     fn end();
 //}
+struct LogIfImpl;
 
+#[impl_interface]
+impl LogIf for LogIfImpl{
+    fn print_log(record: &Record){
+        println!("{}: {}", record.level(), record.args());
+    }
+}
 ///
 pub struct ArchInterfaceImpl;
 
@@ -107,12 +117,12 @@ impl ArchInterface for ArchInterfaceImpl {
                 let args = ctx.args();
                 // get system call return value
                 // info!("syscall: {}", ctx[TrapFrameArgs::SYSCALL]);
-                let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2]]);
+                let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2],args[3],args[4],args[5]]);
                 // cx is changed during sys_exec, so we have to call it again
                 ctx[TrapFrameArgs::RET] = result as usize;
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
-                /*
+                /* 
                 println!(
                     "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
                     scause.cause(),
@@ -120,7 +130,8 @@ impl ArchInterface for ArchInterfaceImpl {
                     current_trap_cx().sepc,
                 );
                 */
-                println!("err {:x?}", trap_type);
+                println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
+          //      ctx.syscall_ok();
                 exit_current_and_run_next(-1);
             }
             IllegalInstruction(_) => {
@@ -137,7 +148,7 @@ impl ArchInterface for ArchInterfaceImpl {
     }
     /// init log
     fn init_logging(){
-        logging::init_logger();
+        logger::init_logger();
     }
     /// add a memory region
     fn add_memory_region(start: usize, end: usize){
@@ -169,7 +180,6 @@ impl ArchInterface for ArchInterfaceImpl {
         fs::list_apps();
         task::add_initproc();
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
-          
         task::run_tasks();
         panic!("Unreachable in rust_main!");
     }

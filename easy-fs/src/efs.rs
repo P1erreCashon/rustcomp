@@ -192,6 +192,12 @@ impl FileSystemType for EfsFsType{
         Ok(root_dentry)
         
     }
+    fn umount(self:Arc<Self>,
+            path:&str,
+            _flags:MountFlags
+        )->SysResult<()> {
+        Ok(())
+    }
 }
 
 ///

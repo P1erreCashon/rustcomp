@@ -1,5 +1,5 @@
 //! Synchronization and interior mutability primitives
-mod up;
+pub mod up;
 //mod cond;
 pub use up::UPSafeCell;
 //pub use cond::Cond;

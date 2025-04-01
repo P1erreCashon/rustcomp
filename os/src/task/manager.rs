@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use lazy_static::*;
 use spin::Mutex;
 
-const MODULE_LEVEL:log::Level = log::Level::Info;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
@@ -82,4 +82,14 @@ pub fn remove_from_pid2task(pid: usize) {
         // log::warn!("cannot find pid {} in pid2task, already removed?", pid);
         // 不再 panic，而是记录警告
     }
+}
+///Interface offered to get task from pid
+pub fn get_task_from_pid(pid:usize) -> Option<Arc<TaskControlBlock>> {
+    let manager = TASK_MANAGER.lock();
+    for task in manager.ready_queue.iter(){
+        if task.getpid() == pid{
+            return Some(task.clone());
+        }
+    }
+    return None;
 }
