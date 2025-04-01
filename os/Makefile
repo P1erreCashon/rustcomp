@@ -74,7 +74,7 @@ $(KERNEL_BIN): kernel
 fs-img: $(APPS)
 	@cd ../user && make build TEST=$(TEST)
 	@rm -f $(FS_IMG)
-	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=256
+	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
 	@mkfs.ext4 $(FS_IMG)
 	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 #	@cd ../ext4-fs-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/

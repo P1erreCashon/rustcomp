@@ -22,10 +22,68 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+use crate::task::SignalFlags;
 use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
+
+const _F_SIZE: usize = 20 - 2 * size_of::<u64>() - size_of::<u32>();
+#[derive(Clone, Copy)]
+#[repr(C)]
+/// System information structure.
+pub struct SysInfo {
+    /// Seconds since boot.
+    pub uptime: i64,
+    /// 1, 5, and 15 minute load averages.
+    pub loads: [u64; 3],
+    /// Total usable main memory size.
+    pub totalram: u64,
+    /// Available memory size.
+    pub freeram: u64,
+    /// Amount of shared memory.
+    pub sharedram: u64,
+    /// Memory used by buffers.
+    pub bufferram: u64,
+    /// Total swap space size.
+    pub totalswap: u64,
+    /// Swap space still available.
+    pub freeswap: u64,
+    /// Number of current processes.
+    pub procs: u16,
+    /// Explicit padding for m68k.
+    pub pad: u16,
+    /// Total high memory size.
+    pub totalhigh: u64,
+    /// Available high memory size.
+    pub freehigh: u64,
+    /// Memory unit size in bytes.
+    pub mem_uint: u32,
+    /// Pads structure to 64 bytes.
+    pub _f: [u8; 12], // 假设 _F_SIZE 是 12，使得结构体总大小为 64 字节, o错误？？
+}
+
+impl Default for SysInfo {
+    fn default() -> Self {
+        SysInfo {
+            uptime: 0,
+            loads: [0; 3],
+            totalram: 0,
+            freeram: 0,
+            sharedram: 0,
+            bufferram: 0,
+            totalswap: 0,
+            freeswap: 0,
+            procs: 0,
+            pad: 0,
+            totalhigh: 0,
+            freehigh: 0,
+            mem_uint: 0,
+            _f: [0; 12],
+        }
+    }
+}
+
 ///
 #[repr(C)]
 pub struct Utsname {
@@ -208,7 +266,8 @@ pub struct TaskControlBlockInner {
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
     pub fd_table_rlimit:RLimit,
-
+    pub signals: SignalFlags, // 新增：未处理的信号
+    pub killed: bool,         // 新增：是否被信号终止
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
     pub stack_bottom: usize,
@@ -307,6 +366,8 @@ impl TaskControlBlock {
                     fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
@@ -486,6 +547,8 @@ impl TaskControlBlock {
                     fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,

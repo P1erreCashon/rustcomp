@@ -3,7 +3,7 @@ use core::ops::Add;
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next
+    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -14,9 +14,9 @@ use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 use crate::config::{UNAME, USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
-use crate::mm::{MapPermission, MapArea};
+use crate::mm::{MapPermission, MapArea, from_prot};
 use arch::pagetable::MappingSize;
-use crate::task::{Tms, Utsname,TimeSpec};
+use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -182,6 +182,10 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
             // confirm that child will be deallocated after being removed from children list
             assert_eq!(Arc::strong_count(&child), 1);
             let found_pid = child.getpid();
+            // 移除 PID2TCB 中的引用（以防万一）
+            remove_from_pid2task(found_pid);
+            // 确认引用计数（仅用于调试，可选）
+            log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
             // ++++ temporarily access child PCB exclusively
             let exit_code = child.inner_exclusive_access().exit_code;
             // ++++ release child PCB
@@ -362,7 +366,7 @@ pub fn sys_set_tid_address(tidptr:usize)->isize{
 }
 
 
-pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize{
+pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize {
     let task;
     let token = current_user_token();
     if pid == 0{
@@ -409,20 +413,132 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
             Resource::NOFILE=>{
                 inner.set_fd_rlimit(limit);
             },
-            _=>{
-
-            }
+            _=>{}
         }
     }
     return 0;
 } 
 
-pub fn sys_getrandom(buf:*mut u8,len:usize,_flags:usize)->isize{
+/*
+struct timespec {
+	time_t tv_sec;        /* 秒 */
+	long   tv_nsec;       /* 纳秒, 范围在0~999999999 */
+};
+*/
+pub const CLOCK_REALTIME: usize = 0; //标准POSIX实时时钟
+pub const CLOCK_MONOTONIC: usize = 1; //POSIX时钟,以恒定速率运行;不会复位和调整,它的取值和CLOCK_REALTIME是一样的.
+pub const CLOCK_PROCESS_CPUTIME_ID: usize = 2;
+pub const CLOCK_THREAD_CPUTIME_ID: usize = 3; //是CPU中的硬件计时器中实现的.
+
+pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> isize {
+    if tp.is_null() {
+        return -1;
+    }
+    match clockid {
+        CLOCK_REALTIME | CLOCK_MONOTONIC => {
+            let token = current_user_token();
+            let tp_ref = translated_refmut(token, tp);
+            tp_ref.sec = Time::now().to_sec();
+            tp_ref.usec = Time::now().to_usec();
+        }
+        CLOCK_PROCESS_CPUTIME_ID | CLOCK_THREAD_CPUTIME_ID => {
+            panic!("CLOCK_PROCESS_CPUTIME_ID/CLOCK_THREAD_CPUTIME_ID unsupported!");
+        }
+        _ => {
+            panic!("unsupported clock_id!");
+        }
+    }
+    0
+}
+
+pub fn sys_exit_group(exit_code: i32) -> isize { //退出线程组，但没有子线程
+    exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
+    panic!("Unreachable in sys_exit!");
+}
+
+pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
     let token = current_user_token();
-    let buf = translated_refmut(token, buf);
-    for _i in 0..len{
-        *buf = 5;
-        let _ = buf.add(1);
+    for index in 0..len {
+        let mut byte: u8 = 0;
+        for _ in 0..8 {
+            let t = Time::now().to_usec();
+            //println!("time={}",t);
+            byte <<= 1;
+            if t/2*2 == t { //0
+                byte |= 0;
+            }
+            else { //1
+                byte |= 1;
+            }
+        }
+        let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
+        *buf_ref = byte;
     }
     return 0;
+} 
+pub fn sys_info(info: *mut SysInfo) -> isize {
+    let token = current_user_token();
+    let info_ref = translated_refmut(token, info);
+    *info_ref = SysInfo::default();
+    0
+}
+
+pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> isize {
+    match log_type {
+        2 |3 |4 => {
+            0
+        }
+        _ => {
+            0
+        }
+    }
+}
+
+pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> isize {
+    if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
+        return -1;
+    }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    //addr-addr+len-1
+    let perm = from_prot(prot); //提取权限
+    // 找到包含addr的区域
+    let mut is_find = false;
+    for ele in &mut inner.memory_set.mmap_area {
+        if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+            ele.map_perm = perm;
+            is_find = true;
+            break;
+        }
+    }
+    if !is_find {
+        for ele in &mut inner.memory_set.heap_area {
+            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+                ele.map_perm = perm;
+                is_find = true;
+                break;
+            }
+        }
+    }
+    if !is_find {
+        for ele in &mut inner.memory_set.areas {
+            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+                ele.map_perm = perm;
+                break;
+            }
+        }
+    } 
+    0
+}
+pub fn sys_kill(pid: usize, signal: u32) -> isize {
+    if let Some(process) = pid2task(pid) {
+        if let Some(flag) = SignalFlags::from_bits(signal) {
+            process.inner_exclusive_access().signals |= flag;
+            0
+        } else {
+            -1
+        }
+    } else {
+        -1
+    }
 }

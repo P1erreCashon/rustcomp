@@ -33,11 +33,17 @@ const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_UTIMENSAT:usize = 88;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_EXIT_GROUP: usize =94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
+const SYSCALL_CLOCK_GETTIME: usize =113;
+const SYSCALL_SYSLOG: usize = 116;
 const SYSCALL_YIELD: usize = 124;
+const SYSCALL_SETGID: usize = 144;
+const SYSCALL_SETUID: usize =146;
+const SYSCALL_KILL: usize = 129;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
@@ -47,21 +53,25 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETGID: usize = 176;
 const SYSCALL_GETEGID: usize = 177;
+const SYSCALL_SYSINFO: usize = 179;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
+const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAITPID: usize = 260;
-const SYSCALL_PRLIMIT64:usize = 261;
-const SYSCALL_GETRANDOM:usize = 278;
+const SYSCALL_PRLIMIT64: usize = 261;
+const SYSCALL_GET_RANDOM: usize = 278;
 
 mod fs;
 mod process;
 
+use arch::addr::VirtAddr;
 use fs::*;
 use process::*;
-use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname}};
+use crate::task::{pid2task, SignalFlags, suspend_current_and_run_next, exit_current_and_run_next, check_signals_error_of_current};
+use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname, SysInfo}};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -112,6 +122,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_YIELD => {
         //    log_debug!("syscall_yield");
             sys_yield();
+        },
+        SYSCALL_KILL => {
+            log_debug!("syscall_kill pid={} signal={}", args[0], args[1]);
+            sys_kill(args[0], args[1] as u32);
         },
         SYSCALL_GET_TIME => {
             result = sys_get_time(args[0] as *mut TimeSpec);
@@ -246,11 +260,45 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = -1;
             log_debug!("syscall_readlinkat result:{:x}",result);
         }
-        SYSCALL_GETRANDOM=>{//
-            result = sys_getrandom(args[0] as *mut u8, args[1], args[2]);
-            log_debug!("syscall_getrandom result:{:x}",result);
+        SYSCALL_SETGID => {// 无
+            result = 0;
+            log_debug!("syscall_setgid result:{}",result);
+        }
+        SYSCALL_SETUID => {// 无
+            result = 0;
+            log_debug!("syscall_setuid result:{}",result);
+        }
+        SYSCALL_EXIT_GROUP => {// 无返回值
+            log_debug!("syscall_exit exit code:{}", args[0]);
+            result = sys_exit_group(args[0] as i32);
+        }
+        SYSCALL_CLOCK_GETTIME => {
+            result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
+
+        }
+        SYSCALL_GET_RANDOM => {
+            result = sys_get_random(args[0] as *mut u8, args[1] as usize, args[2] as usize);
+            log_debug!("syscall_get_random result:{}",result);
+        }
+        SYSCALL_SYSINFO => {
+            result = sys_info(args[0] as *mut SysInfo);
+            log_debug!("syscall_info result:{}",result);
+        }
+        SYSCALL_SYSLOG => {
+            result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
+            log_debug!("syscall_log result:{}",result);
+        }
+        SYSCALL_MPROTECT => {
+            result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
+            log_debug!("syscall_mprotect result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
+    }
+    // 在系统调用返回前检查信号
+    if let Some((code, msg)) = check_signals_error_of_current() {
+        println!("Process terminated due to signal: {}", msg);
+        exit_current_and_run_next(code as i32);
+        unreachable!("Should have exited");
     }
     result
 }

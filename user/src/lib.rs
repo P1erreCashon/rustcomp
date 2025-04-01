@@ -166,6 +166,9 @@ pub fn exit(exit_code: i32) -> ! {
 pub fn yield_() -> isize {
     sys_yield()
 }
+pub fn kill(pid: usize, signal: i32) -> isize {
+    sys_kill(pid, signal)
+}
 pub fn get_time() -> isize {
     sys_get_time()
 }
@@ -234,4 +237,8 @@ pub fn times(tms: *mut Tms) -> isize {
 
 pub fn uname(mes: *mut Utsname) -> isize {
     sys_uname(mes)
+}
+
+pub fn random(buf: *mut u8, len: usize, flags: usize) -> isize {
+    sys_random(buf, len, flags)
 }
