@@ -58,3 +58,33 @@ pub struct Kstat {
     ///
     pub unused: u64,
 }
+
+#[derive(Default, Debug, Clone, Copy)]
+#[repr(C)]
+///
+pub struct StatFs {
+    /// 
+    pub f_type: i64,
+    /// 
+    pub f_bsize: i64,
+    /// 
+    pub f_blocks: u64,
+    /// 
+    pub f_bfree: u64,
+    /// 
+    pub f_bavail: u64,
+    /// 
+    pub f_files: u64,
+    /// 
+    pub f_ffree: u64,
+    /// 
+    pub f_fsid: [i32; 2],
+    /// 
+    pub f_namelen: isize,
+    /// 片大小
+    pub f_frsize: isize,
+    /// 
+    pub f_flags: isize,
+    /// 
+    pub f_spare: [isize; 4],
+}

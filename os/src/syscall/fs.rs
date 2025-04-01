@@ -14,7 +14,7 @@ use device::BLOCK_DEVICE;
 use vfs_defs::Kstat;
 use vfs_defs::MountFlags;
 
-use vfs_defs::{OpenFlags,UserBuffer};
+use vfs_defs::{OpenFlags,UserBuffer,StatFs};
 use vfs::FILE_SYSTEMS;
 //
 use crate::mm::frame_alloc_more;
@@ -642,4 +642,28 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->isize{
     }else {
         return -1;
     }
+}
+
+pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->isize{
+    let token = current_user_token();
+    let buf = translated_refmut(token, buf);
+    *buf =  StatFs {
+        f_type: 0x2011BAB0 as i64,
+        f_bsize: vfs::BLOCK_SIZE as i64,
+        f_blocks: 1 << 27,
+        f_bfree: 1 << 26,
+        f_bavail: 1 << 20,
+        f_files: 1 << 10,
+        f_ffree: 1 << 9,
+        f_fsid: [0; 2],
+        f_namelen: 1 << 8,
+        f_frsize: 1 << 9,
+        f_flags: 1 << 1 as i64,
+        f_spare: [0; 4],
+    };
+    0
+}
+
+pub fn sys_faccessat(dirfd:isize,path:*const u8,_mode:usize,flags:i32)->isize{
+
 }

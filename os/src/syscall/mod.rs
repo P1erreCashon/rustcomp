@@ -19,6 +19,8 @@ const SYSCALL_DUP3: usize =  24;//?
 //const SYSCALL_DUP2: usize =  ???
 const SYSCALL_UMOUNT: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
+const SYSCALL_STATFS: usize = 43;
+const SYSCALL_FACCESSAT:usize = 48;
 const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
@@ -26,6 +28,7 @@ const SYSCALL_GETDENTS64:usize = 61;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
+const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
@@ -49,6 +52,7 @@ const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64:usize = 261;
+const SYSCALL_GETRANDOM:usize = 278;
 
 mod fs;
 mod process;
@@ -144,6 +148,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_umount(args[0] as *const u8,args[1] as u32);
             log_debug!("syscall_umount result:{}",result);
         },
+        SYSCALL_STATFS => {
+            result = sys_statfs(args[0] as *const u8,args[1] as *mut vfs_defs::StatFs);
+            log_debug!("syscall_statfs result:{}",result);
+        },
         SYSCALL_FSTAT => {
             result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
             log_debug!("syscall_umount result:{}",result);
@@ -219,6 +227,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_PRLIMIT64=>{//
             result = sys_prlimit64(args[0], args[1] as i32, args[2] as *const RLimit, args[3] as *mut RLimit);
             log_debug!("syscall_prlimit64 result:{:x}",result);
+        }
+        SYSCALL_READLINKAT=>{//
+            result = -1;
+            log_debug!("syscall_readlinkat result:{:x}",result);
+        }
+        SYSCALL_GETRANDOM=>{//
+            result = sys_getrandom(args[0] as *mut u8, args[1], args[2]);
+            log_debug!("syscall_getrandom result:{:x}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

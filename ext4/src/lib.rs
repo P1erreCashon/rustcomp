@@ -17,3 +17,4 @@ pub use fs::Ext4ImplFsType;
 pub use dentry::Ext4Dentry;
 pub use superblock::Ext4Superblock;
 pub use file::Ext4ImplFile;
+pub use ext4_rs::BLOCK_SIZE;

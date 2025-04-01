@@ -1,3 +1,5 @@
+use core::ops::Add;
+
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
@@ -414,3 +416,13 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
     }
     return 0;
 } 
+
+pub fn sys_getrandom(buf:*mut u8,len:usize,_flags:usize)->isize{
+    let token = current_user_token();
+    let buf = translated_refmut(token, buf);
+    for _i in 0..len{
+        *buf = 5;
+        let _ = buf.add(1);
+    }
+    return 0;
+}
