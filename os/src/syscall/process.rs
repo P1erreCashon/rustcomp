@@ -360,7 +360,7 @@ pub fn sys_set_tid_address(tidptr:usize)->isize{
 }
 
 
-pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize{
+pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize {
     let task;
     let token = current_user_token();
     if pid == 0{
@@ -414,3 +414,40 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
     }
     return 0;
 } 
+
+/*
+struct timespec {
+	time_t tv_sec;        /* 秒 */
+	long   tv_nsec;       /* 纳秒, 范围在0~999999999 */
+};
+*/
+pub const CLOCK_REALTIME: usize = 0; //标准POSIX实时时钟
+pub const CLOCK_MONOTONIC: usize = 1; //POSIX时钟,以恒定速率运行;不会复位和调整,它的取值和CLOCK_REALTIME是一样的.
+pub const CLOCK_PROCESS_CPUTIME_ID: usize = 2;
+pub const CLOCK_THREAD_CPUTIME_ID: usize = 3; //是CPU中的硬件计时器中实现的.
+
+pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> isize {
+    if tp.is_null() {
+        return -1;
+    }
+    match clockid {
+        CLOCK_REALTIME | CLOCK_MONOTONIC => {
+            let token = current_user_token();
+            let tp_ref = translated_refmut(token, tp);
+            tp_ref.sec = Time::now().to_sec();
+            tp_ref.usec = Time::now().to_usec();
+        }
+        CLOCK_PROCESS_CPUTIME_ID | CLOCK_THREAD_CPUTIME_ID => {
+            panic!("CLOCK_PROCESS_CPUTIME_ID/CLOCK_THREAD_CPUTIME_ID unsupported!");
+        }
+        _ => {
+            panic!("unsupported clock_id!");
+        }
+    }
+    0
+}
+
+pub fn sys_exit_group(exit_code: i32) -> isize { //退出线程组，但没有子线程
+    exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
+    panic!("Unreachable in sys_exit!");
+}

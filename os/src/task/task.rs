@@ -209,7 +209,7 @@ pub struct TaskControlBlockInner {
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
     pub fd_table_rlimit:RLimit,
 
-    pub cwd:Arc<dyn Dentry>,//工作目录
+    pub cwd:Arc<dyn Dentry>,
     pub heap_top: usize,
     pub stack_bottom: usize,
     pub max_data_addr: usize,

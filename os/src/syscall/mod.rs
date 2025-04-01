@@ -28,10 +28,12 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_EXIT_GROUP: usize =94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
+const SYSCALL_CLOCK_GETTIME: usize =113;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
 const SYSCALL_SETUID: usize =146;
@@ -230,6 +232,15 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = 0;
             log_debug!("syscall_setuid result:{}",result);
         }
+        SYSCALL_EXIT_GROUP => {// 无返回值
+            log_debug!("syscall_exit exit code:{}", args[0]);
+            result = sys_exit_group(args[0] as i32);
+        }
+        SYSCALL_CLOCK_GETTIME => {
+            result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
+
+        }
+
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     result
