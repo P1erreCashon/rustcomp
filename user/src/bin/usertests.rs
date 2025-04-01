@@ -23,6 +23,7 @@ static SUCC_TESTS: &[(&str, &str, &str, &str, i32)] = &[
     ("sleep_simple\0", "\0", "\0", "\0", 0),
     ("sleep\0", "\0", "\0", "\0", 0),
     ("yield\0", "\0", "\0", "\0", 0),
+    ("kill\0", "\0", "\0", "\0", 0),
 ];
 
 static FAIL_TESTS: &[(&str, &str, &str, &str, i32)] = &[("stack_overflow\0", "\0", "\0", "\0", -2)];

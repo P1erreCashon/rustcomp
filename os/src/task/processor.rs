@@ -7,6 +7,7 @@ use arch::pagetable::PageTable;
 use arch::{kernel_page_table, KContext, context_switch_pt};
 use lazy_static::*;
 use spin::Mutex;
+use crate::task::handle_signals;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -65,6 +66,7 @@ pub fn run_tasks() {
         //    unsafe {
         //        __switch(idle_task_cx_ptr, next_task_cx_ptr);
         //    }
+            handle_signals(); // 确保每次调度时处理信号
             unsafe { context_switch_pt(idle_task_cx_ptr, next_task_cx_ptr, token) }
         }
     }

@@ -22,6 +22,7 @@ use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
 use core::mem::size_of;
+use crate::task::SignalFlags;
 use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
@@ -265,8 +266,9 @@ pub struct TaskControlBlockInner {
     pub exit_code: i32,
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
     pub fd_table_rlimit:RLimit,
-
-    pub cwd:Arc<dyn Dentry>,
+    pub signals: SignalFlags, // 新增：未处理的信号
+    pub killed: bool,         // 新增：是否被信号终止
+    pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
     pub stack_bottom: usize,
     pub max_data_addr: usize,
@@ -364,6 +366,8 @@ impl TaskControlBlock {
                     fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
@@ -543,6 +547,8 @@ impl TaskControlBlock {
                     fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
+                    signals: Default::default(),  // 使用 Default::default() 初始化 signals
+                    killed: false,
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
