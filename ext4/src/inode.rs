@@ -63,4 +63,9 @@ impl Inode for Ext4Inode{
     fn clear(&self) {
         
     }
+    fn get_size(&self) -> u32 {
+        let sb = self.get_meta().superblock.upgrade().unwrap().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT).unwrap();
+        let inoderef = sb.ext4fs.get_inode_ref(self.meta.ino as u32);
+        inoderef.inode.size
+    }
 }

@@ -79,9 +79,9 @@ pub trait Inode: Send + Sync+ DowncastSync {
     ///
     fn get_attr(&self)->SysResult<Kstat>;
     ///
-    fn get_size(&self) -> u32 {//这要改
-        self.get_meta().inner.lock().size
-    }
+    fn get_size(&self) -> u32; //{//这要改
+  //      self.get_meta().inner.lock().size
+  //  }
     ///
     fn set_size(&self, size: u32) {//这要改
         self.get_meta().inner.lock().size = size;

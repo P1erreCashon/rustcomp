@@ -130,7 +130,8 @@ impl ArchInterface for ArchInterfaceImpl {
                     current_trap_cx().sepc,
                 );
                 */
-                println!("err {:x?}", trap_type);
+                println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
+          //      ctx.syscall_ok();
                 exit_current_and_run_next(-1);
             }
             IllegalInstruction(_) => {

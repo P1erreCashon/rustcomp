@@ -6,8 +6,8 @@ use super::vpn_range::VPNRange;
 use alloc::alloc::dealloc;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
-use arch::USER_VADDR_END;
-use crate::config::{PAGE_SIZE, USER_STACK_SIZE, USER_STACK_TOP, USER_MMAP_TOP};
+use arch::{USER_VADDR_END,PAGE_SIZE};
+use crate::config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -80,7 +80,7 @@ impl MemorySet {
     }
     /// Include sections in elf and trampoline and TrapContext and user stack,
     /// also returns user_sp and entry point.
-    pub fn from_elf(elf_data: &[u8]) -> (Self, usize, usize, usize) {
+    pub fn from_elf(elf_data: &[u8]) -> (Self, usize, usize, usize,u16,u16,u64,usize) {
         let mut memory_set = Self::new_bare();
         // map trampoline
         // map program headers of elf, with U flag
@@ -89,13 +89,23 @@ impl MemorySet {
         let magic = elf_header.pt1.magic;
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
+        let mut tls_addr:u64 = 0;
   //      let mut max_end_vpn = VirtPage::new(0);
         let mut max_virt_mem = 0;
+        let mut header_va = 0;
+        let mut found_header_va = false;
         for i in 0..ph_count {
             let ph = elf.program_header(i).unwrap();
+            if ph.get_type().unwrap() == xmas_elf::program::Type::Tls{
+                tls_addr = ph.virtual_addr();
+            }
             if ph.get_type().unwrap() == xmas_elf::program::Type::Load {
                 let start_va: VirtAddr = (ph.virtual_addr() as usize).into();
-                let end_va: VirtAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+                let end_va: VirtAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();                
+                if !found_header_va {
+                    header_va = start_va.addr();
+                    found_header_va = true;
+                }
                 let mut map_perm = MapPermission::U;
                 let ph_flags = ph.flags();
                 if ph_flags.is_read() {
@@ -123,7 +133,20 @@ impl MemorySet {
                 max_virt_mem = max_virt_mem.max(section_end);
             }
         }
-        let heap_top: usize = max_virt_mem.try_into().unwrap();
+
+        // 为程序映像转储 elf 程序头
+
+        let heap_start:usize =  max_virt_mem.try_into().unwrap();
+        let heap_top: usize = heap_start + USER_HEAP_SIZE;
+        memory_set.push(
+            MapArea::new(
+                heap_start.into(),
+                heap_top.into(),
+                MapType::Framed,
+                MapPermission::R | MapPermission::W | MapPermission::U,
+            ),
+            None,
+        );
         // map user stack with U flags
         // let max_end_va: VirtAddr = max_end_vpn.into();
         
@@ -145,6 +168,10 @@ impl MemorySet {
             user_stack_top,
             elf.header.pt2.entry_point() as usize,
             heap_top,
+            elf.header.pt2.ph_entry_size(),
+            ph_count,
+            tls_addr,
+            header_va + elf_header.pt2.ph_offset() as usize
         )
     }
     ///Clone a same `MemorySet`
@@ -214,7 +241,7 @@ impl MemorySet {
     /// 用于munmap
     pub fn remove_map_area_by_vpn_start(&mut self, num: VirtPage) -> i32 {
         if let Some(pos) = self.mmap_area.iter().position(|map_area| map_area.vpn_range.get_start() == num) {
-            println!("remove vpn: {}~{}",self.mmap_area[pos].vpn_range.get_start(),self.mmap_area[pos].vpn_range.get_end());
+        //    println!("remove vpn: {}~{}",self.mmap_area[pos].vpn_range.get_start(),self.mmap_area[pos].vpn_range.get_end());
             self.mmap_area.remove(pos);
             0 // 成功找到并移除，返回 0 或其他表示成功的值
         } else {
@@ -300,7 +327,7 @@ impl MapArea {
         let start_vpn: VirtPage = start_va.floor().into();
         let end_vpn: VirtPage = end_va.ceil().into();
         Self {
-            vpn_range: VPNRange::new(start_vpn, end_vpn),
+            vpn_range: VPNRange::new(start_vpn, end_vpn,start_va,end_va),
             data_frames: BTreeMap::new(),
             map_type,
             map_perm,
@@ -309,7 +336,7 @@ impl MapArea {
     ///
     pub fn from_another(another: &MapArea) -> Self {
         Self {
-            vpn_range: VPNRange::new(another.vpn_range.get_start(), another.vpn_range.get_end()),
+            vpn_range: VPNRange::new(another.vpn_range.get_start(), another.vpn_range.get_end(),another.vpn_range.get_start_addr(),another.vpn_range.get_end_addr()),
             data_frames: BTreeMap::new(),
             map_type: another.map_type,
             map_perm: another.map_perm,
@@ -365,6 +392,21 @@ impl MapArea {
         let mut start: usize = 0;
         let mut current_vpn = self.vpn_range.get_start();
         let len = data.len();
+        let start_addr = self.vpn_range.get_start_addr().addr();
+        if start_addr % PAGE_SIZE != 0{
+            let copy_size = PAGE_SIZE - start_addr % PAGE_SIZE;
+            
+            let src = &data[start..len.min(start + copy_size)];
+            let dst = &mut PhysPage::from(page_table.translate(current_vpn.into()).unwrap().0)
+                .get_buffer()[start_addr % PAGE_SIZE..src.len() + start_addr % PAGE_SIZE];
+            dst.copy_from_slice(src);
+            start += copy_size;
+            if start >= len {
+                return;
+            }
+            // current_vpn.step();
+            current_vpn = current_vpn + 1;
+        }
         loop {
             let src = &data[start..len.min(start + PAGE_SIZE)];
             let dst = &mut PhysPage::from(page_table.translate(current_vpn.into()).unwrap().0)

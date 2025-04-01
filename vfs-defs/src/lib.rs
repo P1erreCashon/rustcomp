@@ -13,7 +13,7 @@ pub use filesystemtype::{FileSystemType,FileSystemTypeInner,MountFlags};
 pub use dentry::{Dentry,DentryInner,DentryState};
 pub use superblock::{SuperBlock,SuperBlockInner};
 pub use inode::{Inode,InodeMeta,InodeMetaInner,DiskInodeType,InodeState};
-pub use file::{File,FileInner,OpenFlags,UserBuffer,UserBufferIterator};
+pub use file::{File,FileInner,OpenFlags,UserBuffer,UserBufferIterator,SeekFlags};
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 #[repr(C)]

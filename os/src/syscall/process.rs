@@ -1,17 +1,16 @@
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    add_task, current_task, current_user_token, exit_current_and_run_next,
-    suspend_current_and_run_next,
+    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next
 };
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arch::time::{self, Time};
-use arch::TrapFrameArgs;
+use arch::{TrapFrameArgs,PAGE_SIZE};
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
-use crate::config::{PAGE_SIZE, UNAME};
+use crate::config::{UNAME, USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::{MapPermission, MapArea};
 use arch::pagetable::MappingSize;
@@ -226,14 +225,16 @@ pub fn sys_brk(new_brk:  usize) -> isize {
     
     if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
         task_inner.heap_top = new_brk;
-        return 0;
+    //    return 0;
+        return new_brk as isize;
     }
 
     if new_brk > cur_brk {
         let user_stack_bottom = task_inner.stack_bottom;
         
         if new_brk >= user_stack_bottom -PAGE_SIZE { 
-            return -1;
+            return cur_brk as isize;
+//            return -1;
         }
         let cur_addr = VirtAddr::new(task_inner.max_data_addr).floor();
         let new_addr = VirtAddr::new(new_brk).ceil();
@@ -252,11 +253,12 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
-        
-        0
+        return new_brk as isize;
+     //   0
     }
     else if new_brk == cur_brk {
-        -1
+          return cur_brk as isize;
+    //    -1
     }
     else {// 不考虑不合理的减小
         // 确认需要释放的虚页号
@@ -276,8 +278,8 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         // 不释放
         // new_brk 应当大于数据段起始 未做判断
         task_inner.heap_top = new_brk;
-        
-        0
+        return new_brk as isize;
+    //   0
     }
 }
 
@@ -349,3 +351,66 @@ pub fn sys_getppid()->isize{
     let ret = parent.pid.0 as isize;
     ret
 }
+
+pub fn sys_set_tid_address(tidptr:usize)->isize{
+    let current = current_task().unwrap();
+    let mut inner = current.inner_exclusive_access();
+    inner.tidaddress.clear_child_tid = Some(tidptr);
+    tidptr as isize
+}
+
+
+pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize{
+    let task;
+    let token = current_user_token();
+    if pid == 0{
+        task = current_task().unwrap();
+    }
+    else {
+        if let Some(t) = crate::task::get_task_from_pid(pid){
+            task = t;
+        }
+        else {
+            return -1;
+        }
+    }
+    let mut inner = task.inner_exclusive_access();
+    let resource = Resource::new(resource);
+    if resource.is_none(){
+        return -1;
+    }
+    let resource = resource.unwrap();
+    if !old_limit.is_null(){
+        let limit;
+        match resource{
+            Resource::STACK=>{
+                limit = RLimit{
+                    rlimit_cur:USER_STACK_SIZE,
+                    rlimit_max:USER_STACK_SIZE,
+                }
+            },
+            Resource::NOFILE=>{
+                limit = inner.fd_table_rlimit;
+            }
+            _=>{
+                limit = RLimit{
+                    rlimit_cur:0,
+                    rlimit_max:0
+                }
+            }
+        };
+        *translated_refmut(token,old_limit) = limit;
+    }
+    if !new_limit.is_null(){
+        let limit = *translated_ref(token, new_limit);
+        match resource {
+            Resource::NOFILE=>{
+                inner.set_fd_rlimit(limit);
+            },
+            _=>{
+
+            }
+        }
+    }
+    return 0;
+} 

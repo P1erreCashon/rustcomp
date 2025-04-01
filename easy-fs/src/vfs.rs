@@ -74,6 +74,9 @@ impl Inode for EfsInode{
     fn load_from_disk(&self) {
         self.lock_inner();
     }
+    fn get_size(&self) -> u32 {
+        0
+    }
 }
 
 impl InodeInner{
