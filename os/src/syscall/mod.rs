@@ -25,11 +25,13 @@ const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_GETDENTS64:usize = 61;
+const SYSCALL_LSEEK:usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTAT: usize = 80;
+const SYSCALL_UTIMENSAT:usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SET_ROBUST_LIST:usize = 99;
@@ -152,9 +154,21 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_statfs(args[0] as *const u8,args[1] as *mut vfs_defs::StatFs);
             log_debug!("syscall_statfs result:{}",result);
         },
+        SYSCALL_FACCESSAT => {
+            result = sys_faccessat(args[0] as isize,args[1] as *const u8,args[2],args[3] as i32);
+            log_debug!("syscall_statfs result:{}",result);
+        },
+        SYSCALL_LSEEK => {
+            result = sys_lseek(args[0] as isize,args[1] as isize,args[2]);
+            log_debug!("syscall_lseek result:{}",result);
+        },
         SYSCALL_FSTAT => {
             result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
             log_debug!("syscall_umount result:{}",result);
+        },
+        SYSCALL_UTIMENSAT => {
+            result = sys_utimensat(args[0] as isize,args[1] as *const u8,args[2] as *const TimeSpec,args[3] as i32);
+            log_debug!("syscall_utimensat result:{}",result);
         },
         SYSCALL_GETCWD => {
             result = sys_getcwd(args[0] as *mut u8, args[1] as usize);

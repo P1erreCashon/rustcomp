@@ -369,7 +369,7 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
         task = current_task().unwrap();
     }
     else {
-        if let Some(t) = crate::task::get_task_from_pid(pid){
+        if let Some(t) = crate::task::get_task_from_pid(pid){//这里要改！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
             task = t;
         }
         else {

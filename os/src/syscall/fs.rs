@@ -14,7 +14,7 @@ use device::BLOCK_DEVICE;
 use vfs_defs::Kstat;
 use vfs_defs::MountFlags;
 
-use vfs_defs::{OpenFlags,UserBuffer,StatFs};
+use vfs_defs::{OpenFlags,UserBuffer,StatFs,SeekFlags};
 use vfs::FILE_SYSTEMS;
 //
 use crate::mm::frame_alloc_more;
@@ -665,5 +665,48 @@ pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->isize{
 }
 
 pub fn sys_faccessat(dirfd:isize,path:*const u8,_mode:usize,flags:i32)->isize{
+    let path = parse_fd_path(dirfd, path);
+    if path.is_none(){
+        return -1;
+    }
+    let path = path.unwrap();
+    if flags == 0x100 as i32 {//no symlink now
+        return -1;
+    }
+    if let Some(_file) = open_file(path.as_str(), OpenFlags::empty()){
+        return 0;
+    }
+    return -1;
+}
 
+pub fn sys_lseek(fd:isize,offset:isize,whence:usize)->isize{
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if fd < 0 {
+        return -1;
+    }
+    if fd >= inner.fd_table.len() as isize {
+        return -1;
+    }
+    if let Some(_file) = &inner.fd_table[fd as usize]{
+        match whence{
+            0=>{
+                return _file.seek(offset as i64, SeekFlags::SEEK_SET);
+            },
+            1=>{
+                return _file.seek(offset as i64, SeekFlags::SEEK_CUR);
+            },
+            2=>{
+                return _file.seek(offset as i64, SeekFlags::SEEK_END);
+            },
+            _=>{
+
+            }
+        }
+    }
+    return -1;
+}
+
+pub fn sys_utimensat(_dirfd:isize,_path:*const u8,_times:*const crate::task::TimeSpec,_flags:i32)->isize{//not implemented
+    0
 }
