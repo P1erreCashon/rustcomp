@@ -52,7 +52,8 @@ const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
-const SYSCALL_PRLIMIT64:usize = 261;
+const SYSCALL_PRLIMIT64: usize = 261;
+const SYSCALL_GET_RANDOM: usize = 278;
 
 mod fs;
 mod process;
@@ -239,6 +240,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_CLOCK_GETTIME => {
             result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
 
+        }
+        SYSCALL_GET_RANDOM => {
+            result = sys_get_random(args[0] as *mut u8, args[1] as usize, args[2] as usize);
+            log_debug!("syscall_get_random result:{}",result);
         }
 
         _ => panic!("Unsupported syscall_id: {}", syscall_id),

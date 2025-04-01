@@ -451,3 +451,24 @@ pub fn sys_exit_group(exit_code: i32) -> isize { //退出线程组，但没有�
     exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
     panic!("Unreachable in sys_exit!");
 }
+
+pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
+    let token = current_user_token();
+    for index in 0..len {
+        let mut byte: u8 = 0;
+        for _ in 0..8 {
+            let t = Time::now().to_usec();
+            //println!("time={}",t);
+            byte <<= 1;
+            if t/2*2 == t { //0
+                byte |= 0;
+            }
+            else { //1
+                byte |= 1;
+            }
+        }
+        let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
+        *buf_ref = byte;
+    }
+    len as isize
+} 

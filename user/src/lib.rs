@@ -235,3 +235,7 @@ pub fn times(tms: *mut Tms) -> isize {
 pub fn uname(mes: *mut Utsname) -> isize {
     sys_uname(mes)
 }
+
+pub fn random(buf: *mut u8, len: usize, flags: usize) -> isize {
+    sys_random(buf, len, flags)
+}
