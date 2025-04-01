@@ -46,6 +46,7 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETGID: usize = 176;
 const SYSCALL_GETEGID: usize = 177;
+const SYSCALL_SYSINFO: usize = 179;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
@@ -60,7 +61,7 @@ mod process;
 
 use fs::*;
 use process::*;
-use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname}};
+use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname, SysInfo}};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -244,6 +245,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_GET_RANDOM => {
             result = sys_get_random(args[0] as *mut u8, args[1] as usize, args[2] as usize);
             log_debug!("syscall_get_random result:{}",result);
+        }
+        SYSCALL_SYSINFO => {
+            result = sys_info(args[0] as *mut SysInfo);
+            log_debug!("syscall_info result:{}",result);
         }
 
         _ => panic!("Unsupported syscall_id: {}", syscall_id),

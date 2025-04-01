@@ -14,7 +14,7 @@ use crate::config::{UNAME, USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::{MapPermission, MapArea};
 use arch::pagetable::MappingSize;
-use crate::task::{Tms, Utsname,TimeSpec};
+use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
@@ -472,3 +472,10 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
     }
     len as isize
 } 
+
+pub fn sys_info(info: *mut SysInfo) -> isize {
+    let token = current_user_token();
+    let info_ref = translated_refmut(token, info);
+    *info_ref = SysInfo::default();
+    0
+}
