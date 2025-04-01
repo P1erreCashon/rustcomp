@@ -19,14 +19,19 @@ const SYSCALL_DUP3: usize =  24;//?
 //const SYSCALL_DUP2: usize =  ???
 const SYSCALL_UMOUNT: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
+const SYSCALL_STATFS: usize = 43;
+const SYSCALL_FACCESSAT:usize = 48;
 const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_GETDENTS64:usize = 61;
+const SYSCALL_LSEEK:usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
+const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTAT: usize = 80;
+const SYSCALL_UTIMENSAT:usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize =94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
@@ -159,9 +164,25 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_umount(args[0] as *const u8,args[1] as u32);
             log_debug!("syscall_umount result:{}",result);
         },
+        SYSCALL_STATFS => {
+            result = sys_statfs(args[0] as *const u8,args[1] as *mut vfs_defs::StatFs);
+            log_debug!("syscall_statfs result:{}",result);
+        },
+        SYSCALL_FACCESSAT => {
+            result = sys_faccessat(args[0] as isize,args[1] as *const u8,args[2],args[3] as i32);
+            log_debug!("syscall_statfs result:{}",result);
+        },
+        SYSCALL_LSEEK => {
+            result = sys_lseek(args[0] as isize,args[1] as isize,args[2]);
+            log_debug!("syscall_lseek result:{}",result);
+        },
         SYSCALL_FSTAT => {
             result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
             log_debug!("syscall_umount result:{}",result);
+        },
+        SYSCALL_UTIMENSAT => {
+            result = sys_utimensat(args[0] as isize,args[1] as *const u8,args[2] as *const TimeSpec,args[3] as i32);
+            log_debug!("syscall_utimensat result:{}",result);
         },
         SYSCALL_GETCWD => {
             result = sys_getcwd(args[0] as *mut u8, args[1] as usize);
@@ -235,6 +256,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_prlimit64(args[0], args[1] as i32, args[2] as *const RLimit, args[3] as *mut RLimit);
             log_debug!("syscall_prlimit64 result:{:x}",result);
         }
+        SYSCALL_READLINKAT=>{//
+            result = -1;
+            log_debug!("syscall_readlinkat result:{:x}",result);
+        }
         SYSCALL_SETGID => {// 无
             result = 0;
             log_debug!("syscall_setgid result:{}",result);
@@ -267,7 +292,6 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
             log_debug!("syscall_mprotect result:{}",result);
         }
-
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     // 在系统调用返回前检查信号

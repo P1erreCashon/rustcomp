@@ -1,3 +1,5 @@
+use core::ops::Add;
+
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
@@ -371,7 +373,7 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
         task = current_task().unwrap();
     }
     else {
-        if let Some(t) = crate::task::get_task_from_pid(pid){
+        if let Some(t) = crate::task::get_task_from_pid(pid){//这里要改！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
             task = t;
         }
         else {
@@ -472,9 +474,8 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
         let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
         *buf_ref = byte;
     }
-    len as isize
+    return 0;
 } 
-
 pub fn sys_info(info: *mut SysInfo) -> isize {
     let token = current_user_token();
     let info_ref = translated_refmut(token, info);

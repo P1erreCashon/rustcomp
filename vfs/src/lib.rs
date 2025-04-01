@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use spin::{Mutex,Once};
 use vfs_defs::{FileSystemType, MountFlags,Dentry};
 use device::BLOCK_DEVICE;
+pub use ext4::BLOCK_SIZE;
 
 lazy_static!{
     pub static ref FILE_SYSTEMS:Mutex<FileSystemManager> =
