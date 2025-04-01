@@ -1,0 +1,281 @@
+[33mcommit 7d949e4fca8b5f235a38c583a6ff35a447dc4cc0[m[33m ([m[1;36mHEAD -> [m[1;32mdev-add_pipe[m[33m)[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 15:24:12 2025 +0800
+
+    实现sys_kill
+
+[33mcommit 214f7413feffa8ae842e4b3288afe94d7c763fa4[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 15:08:36 2025 +0800
+
+    新增信号量，实现sys_kill
+
+[33mcommit 5c0a60945a545fe3cb944becc631ea6da27a6885[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 14:56:02 2025 +0800
+
+    新增信号功能，实现了sys_kill
+
+[33mcommit c02bb9d8d6d15a918bd49ce763885b4f34fafee7[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 14:50:47 2025 +0800
+
+    新增信号功能，实现了sys_kill
+
+[33mcommit e601f90b64907c7d8761b01d1d15a44b43c7173d[m[33m ([m[1;31morigin/dev-add_pipe[m[33m)[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Thu Mar 13 21:25:56 2025 +0800
+
+    add hal
+
+[33mcommit f4c5105dcca261aa1efaa4fe984db815ec5a17af[m
+Merge: 9f686a2 5a63096
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Wed Mar 5 09:52:43 2025 +0800
+
+    Merge pull request #2 from P1erreCashon/dev-add_vfs
+    
+    在efs上实现vfs
+
+[33mcommit 5a63096d7705c880ca189263db6cbd3aede8a083[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Mar 5 09:47:07 2025 +0800
+
+    在efs上实现vfs
+
+[33mcommit 9f686a238788e0e60c3bb02ae1b6c9ed98cd846c[m
+Merge: f6f0f07 8c3174a
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Feb 18 14:34:33 2025 +0800
+
+    Merge pull request #1 from P1erreCashon/dev-add_device_management
+    
+    增加了阻塞态和中断方式访问设备
+
+[33mcommit 8c3174ab49baad0665b1f733b58c032bfd26ad7d[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Feb 18 14:29:40 2025 +0800
+
+    增加了阻塞态和中断方式访问设备
+
+[33mcommit f6f0f076a79792d7b20ce26cbd5c30bc4b631089[m[33m ([m[1;31morigin/dev-update-_dir(已完成，不要使用这个分支)[m[33m)[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Feb 5 14:46:16 2025 +0800
+
+    dev:fs暂时修改完成
+
+[33mcommit 9dddc57c702cba5900bcdc4fd356ea36f3f55020[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Fri Nov 22 10:20:49 2024 +0800
+
+    dev:Use Mutex instead of UPSafecell
+
+[33mcommit 39cbf1a98072d0353f7934f492937a0e6e14ce3a[m
+Merge: 1a8096a 1268f40
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Nov 20 19:33:14 2024 +0800
+
+    Merge branch 'main' of github.com:P1erreCashon/rustcomp
+    merge readme
+
+[33mcommit 1a8096ae3824a2cbb4fe6831fdff1b92432cf531[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Nov 20 19:24:57 2024 +0800
+
+    dev-add log
+
+[33mcommit 1268f40ef28b46fb9e9bcb504833d5e90b2d1ac2[m
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Wed Oct 23 19:03:55 2024 +0800
+
+    Update README.md
+
+[33mcommit fcf104f124163c2073a486b178b3e0822a3cec47[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Jul 14 20:50:53 2024 +0800
+
+    buildtools: feat #135: Check the version of QEMU ahead
+
+[33mcommit eeb8ac2352a12ec22c0a627d69ab369a63b0f574[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Jun 30 20:09:43 2024 +0800
+
+    mm: bugfix #133: MapArea::copy_data does not need &mut PageTable
+
+[33mcommit b100bcb0ed0c1c15c99240fd19d94cc26eabef0f[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Thu May 2 11:04:17 2024 +0800
+
+    toolchain: Bump Rust to 1.80.0-nightly
+
+[33mcommit 2913070bfe2dff7357f2e5bf34ab99fce3b91d5c[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Fri Jan 26 22:09:29 2024 +0800
+
+    Merge pull request #139 from jklincn/main
+
+[33mcommit bbeff6350fdf425b7e03a12a11dff959e1d7399e[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Jan 21 22:09:10 2024 +0800
+
+    config: use MEMORY_END from mod boards #136
+
+[33mcommit 70f252a9bcc18da4622e3e532609bf8115c396af[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Jan 21 00:53:18 2024 +0800
+
+    Merge pull request #134 from cndoit18/add-devcontainer
+    
+    feat: support devcontainer
+
+[33mcommit 385bd31160e70ed966dd08cac918ec757c670941[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sat Jan 20 21:50:24 2024 +0800
+
+    Bump rust to version 1.77.0-nightly
+
+[33mcommit e9c42c8a7db53a2771ae3ccd50a39691d8e8c3e7[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Oct 15 15:27:23 2023 +0800
+
+    Update doc-and-test.yml
+
+[33mcommit 20aa3081529ea92d1cd008b1bb788ae26b8ca78c[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Oct 10 21:50:45 2023 +0800
+
+    Bump rust to version 1.75.0-nightly
+
+[33mcommit c462545bfb182689c12f42468904e400f350a59e[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed May 31 21:17:53 2023 +0800
+
+    Fix issue #123
+
+[33mcommit 8e663030cbb3056de20f09d560cefeb4a6114a6d[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Apr 30 01:02:04 2023 +0800
+
+    Update os/Makefile: Added QEMU_ARGS
+
+[33mcommit 9831b9e7e9ce4ffe582cd4d2aff6d59e07c122e9[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Mar 29 21:04:20 2023 +0800
+
+    fix ch6
+
+[33mcommit 2919b14ef31b4f18f3cfbc5669b93687d788c9c6[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Mar 29 20:51:50 2023 +0800
+
+    fix ch5
+
+[33mcommit 954d70d56ef6f44d5ae214ac9abdfbe9edf4c887[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Mar 28 23:42:48 2023 +0800
+
+    Use error! instead of println! when panicking
+
+[33mcommit 5f681415435f23d5ba430741632394ac99b7092b[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Mar 28 00:03:29 2023 +0800
+
+    Using sbi-rt instead of asm && update rustsbi-qemu to latest
+    
+    rustsbi-qemu version: a4f0bbe44d9f2f1069a9e5becd09f291e542852c
+
+[33mcommit 3305a9e147bfdca69edb2470b52fcff5b024538a[m
+Merge: 45f1a95 dafaa4d
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Feb 12 11:43:41 2023 +0800
+
+    Merge pull request #107 from KuangjuX/ch6
+
+[33mcommit dafaa4d7fd67edeec3bfa21c08e941f0e7f26b08[m
+Author: KuangjuX <18630816527@163.com>
+Date:   Sun Feb 12 11:07:58 2023 +0800
+
+    fix memory end
+
+[33mcommit 45f1a957b4d61cbda6ffc121b7579eef40c3addf[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Feb 1 21:15:06 2023 +0800
+
+    Remove unnecessary output.
+
+[33mcommit c1c9b659bfd39253c278a4c1c4eb69b2a24883a2[m
+Author: Yu Chen <yuchen@mail.tsinghua.edu.cn>
+Date:   Sat Dec 31 11:05:51 2022 +0800
+
+    fix for rust-analyzer warning
+
+[33mcommit 9f207d4866111798e5f29a3cd44c9b61db5733d2[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Dec 21 21:26:06 2022 +0800
+
+    user add fp support
+
+[33mcommit 147d15286cfb2da0a1bfe65827f3818009fb10cf[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Dec 14 00:37:52 2022 +0800
+
+    Workflow: Remove k210 support.
+
+[33mcommit 2cd4b625c6af57cc494ac361294b90a149885256[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Wed Dec 14 00:12:50 2022 +0800
+
+    Remove K210 support.
+
+[33mcommit 66a93a40a7d9c4e33629b4c6e575413ebe998865[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Dec 13 23:09:09 2022 +0800
+
+    Remove K210 support.
+
+[33mcommit afe83aa7f766d3722e5e89f7c119a3854f2ca0ae[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Nov 29 11:13:44 2022 +0800
+
+    Update stack_overflow
+
+[33mcommit e4e6446cdf1b09dcbc9a4f6bd508bc5bbf48b901[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Tue Nov 29 09:56:01 2022 +0800
+
+    in entry.asm: boot_stack->boot_stack_lower_bound
+
+[33mcommit df59d56564dcdd52528d02f991db2bd9105dd50d[m
+Author: YdrMaster <ydrml@hotmail.com>
+Date:   Thu Oct 20 11:49:30 2022 +0800
+
+    build: update toolchain
+    
+    Signed-off-by: YdrMaster <ydrml@hotmail.com>
+
+[33mcommit fa204a9aee05d966c5d5c6846369ff7b44f068ac[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sun Oct 9 05:12:05 2022 +0800
+
+    Bump rustsbi-qemu to 701e891
+
+[33mcommit 37a61a8cc2d5de2ac5ec77e7ecf71f72819cbd75[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Sat Oct 1 22:18:52 2022 +0800
+
+    Update Docker
+
+[33mcommit 7f5d00acf131e1e9d03db710f3b2a20e285ad589[m
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Mon Sep 5 02:30:55 2022 -0700
+
+    Lock virtio-drivers version at 4ee80e5
+
+[33mcommit 109d33395d7c22b68d24d9dc0575bceb0bb1dbe5[m
+Merge: 3f0d1ab 066ec93
+Author: Yifan Wu <shinbokuow@163.com>
+Date:   Fri Sep 2 10:11:59 2022 +0100
+
+    Merge pull request #87 from DeathWish5/ch6
+
+[33mcommit 066ec932c

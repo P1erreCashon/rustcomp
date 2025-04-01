@@ -1,7 +1,7 @@
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next
+    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -180,6 +180,10 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
             // confirm that child will be deallocated after being removed from children list
             assert_eq!(Arc::strong_count(&child), 1);
             let found_pid = child.getpid();
+            // 移除 PID2TCB 中的引用（以防万一）
+            remove_from_pid2task(found_pid);
+            // 确认引用计数（仅用于调试，可选）
+            log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
             // ++++ temporarily access child PCB exclusively
             let exit_code = child.inner_exclusive_access().exit_code;
             // ++++ release child PCB
@@ -407,10 +411,20 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
             Resource::NOFILE=>{
                 inner.set_fd_rlimit(limit);
             },
-            _=>{
-
-            }
+            _=>{}
         }
     }
     return 0;
 } 
+pub fn sys_kill(pid: usize, signal: u32) -> isize {
+    if let Some(process) = pid2task(pid) {
+        if let Some(flag) = SignalFlags::from_bits(signal) {
+            process.inner_exclusive_access().signals |= flag;
+            0
+        } else {
+            -1
+        }
+    } else {
+        -1
+    }
+}
