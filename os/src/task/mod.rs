@@ -22,6 +22,8 @@ mod processor;
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
+mod aux;
+mod tid;
 
 use crate::fs::open_file;
 use alloc::sync::Arc;
@@ -29,15 +31,17 @@ use arch::shutdown;
 use arch::KContext;
 use arch::TrapFrameArgs;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager,wakeup_task};
+pub use manager::{fetch_task, TaskManager,wakeup_task,get_task_from_pid};
 pub use task::{TaskControlBlock, TaskStatus, Tms, Utsname,TimeSpec, MapFdControl};
 use vfs_defs::OpenFlags;
 pub use manager::add_task;
 pub use pid::{pid_alloc,  PidAllocator, PidHandle};
+pub use tid::{tid_alloc , TidAllocator, TidHandle, TidAddress};
 pub use processor::{
     current_task,  current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+pub use aux::*;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 

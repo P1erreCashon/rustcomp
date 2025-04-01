@@ -53,3 +53,14 @@ pub fn wakeup_task(task: Arc<TaskControlBlock>) {
 pub fn fetch_task() -> Option<Arc<TaskControlBlock>> {
     TASK_MANAGER.lock().fetch()
 }
+
+///Interface offered to get task from pid
+pub fn get_task_from_pid(pid:usize) -> Option<Arc<TaskControlBlock>> {
+    let manager = TASK_MANAGER.lock();
+    for task in manager.ready_queue.iter(){
+        if task.getpid() == pid{
+            return Some(task.clone());
+        }
+    }
+    return None;
+}

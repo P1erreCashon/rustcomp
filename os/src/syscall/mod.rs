@@ -25,8 +25,12 @@ const SYSCALL_PIPE: usize = 59;
 const SYSCALL_GETDENTS64:usize = 61;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_SET_TID_ADDRESS: usize = 96;
+const SYSCALL_SET_ROBUST_LIST:usize = 99;
+const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_TIMES: usize = 153;
@@ -34,19 +38,24 @@ const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
+const SYSCALL_GETUID: usize = 174;
+const SYSCALL_GETEUID: usize = 175;
+const SYSCALL_GETGID: usize = 176;
+const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
+const SYSCALL_PRLIMIT64:usize = 261;
 
 mod fs;
 mod process;
 
 use fs::*;
 use process::*;
-use crate::task::{Tms, Utsname,TimeSpec};
+use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname}};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
@@ -80,11 +89,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_READ => {
             result = sys_read(args[0], args[1] as *mut u8, args[2]);
-            log_debug!("syscall_read result:{}",result);
+      //      log_debug!("syscall_read result:{}",result);
         },
         SYSCALL_WRITE =>{
             result = sys_write(args[0], args[1] as *mut u8, args[2]);
-            log_debug!("syscall_write result:{}",result);
+      //      log_debug!("syscall_write result:{}",result);
+        },
+        SYSCALL_WRITEV =>{
+            result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
         },
         SYSCALL_EXIT => {
             log_debug!("syscall_exit exit code:{}",args[0]);
@@ -120,8 +132,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             log_debug!("syscall_pipe result:{}",result);
         },
         SYSCALL_BRK => {
+            log_debug!("syscall_brk arg:{:x}",args[0]);
             result = sys_brk(args[0]);
-            log_debug!("syscall_brk result:{}",result);
+            log_debug!("syscall_brk result:{:x}",result);
         },
         SYSCALL_MOUNT => {
             result = sys_mount(args[0] as *const u8,args[1] as *const u8,args[2] as *const u8,args[3] as u32,args[4] as *const u8,);
@@ -175,6 +188,38 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_getppid();
             log_debug!("syscall_getppid result:{}",result);
         },
+        SYSCALL_GETUID=>{//没有用户，返回代表root的0
+            result = 1;
+            log_debug!("syscall_getuid result:{}",result);
+        }
+        SYSCALL_GETEUID=>{//没有用户，返回代表root的0
+            result = 1;
+            log_debug!("syscall_geteuid result:{}",result);
+        }
+        SYSCALL_GETGID=>{//没有用户，返回代表root的0
+            result = 1;
+            log_debug!("syscall_getgid result:{}",result);
+        }
+        SYSCALL_GETEGID=>{//没有用户，返回代表root的0
+            result = 1;
+            log_debug!("syscall_getteuid result:{}",result);
+        }
+        SYSCALL_SET_ROBUST_LIST=>{//没有影响
+            result = 0;
+            log_debug!("syscall_set_robust_list result:{}",result);
+        }
+        SYSCALL_GET_ROBUST_LIST=>{//没有影响
+            result = 0;
+            log_debug!("syscall_get_robust_list result:{}",result);
+        }
+        SYSCALL_SET_TID_ADDRESS=>{//
+            result = sys_set_tid_address(args[0]);
+            log_debug!("syscall_settidaddr result:{:x}",result);
+        }
+        SYSCALL_PRLIMIT64=>{//
+            result = sys_prlimit64(args[0], args[1] as i32, args[2] as *const RLimit, args[3] as *mut RLimit);
+            log_debug!("syscall_prlimit64 result:{:x}",result);
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     result

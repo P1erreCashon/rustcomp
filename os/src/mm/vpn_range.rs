@@ -1,20 +1,28 @@
-use arch::addr::VirtPage;
+use arch::addr::{VirtPage,VirtAddr};
 
 #[derive(Copy, Clone, Debug)]
 pub struct VPNRange {
     pub l: VirtPage,
     pub r: VirtPage,
+    pub start:VirtAddr,
+    pub end:VirtAddr
 }
 impl VPNRange {
-    pub fn new(start: VirtPage, end: VirtPage) -> Self {
+    pub fn new(start: VirtPage, end: VirtPage,start_addr:VirtAddr,end_addr:VirtAddr) -> Self {
         assert!(start <= end, "start {:?} > end {:?}!", start, end);
-        Self { l: start, r: end }
+        Self { l: start, r: end ,start:start_addr,end:end_addr}
     }
     pub fn get_start(&self) -> VirtPage {
         self.l
     }
     pub fn get_end(&self) -> VirtPage {
         self.r
+    }
+    pub fn get_start_addr(&self) ->VirtAddr {
+        self.start
+    }
+    pub fn get_end_addr(&self) ->VirtAddr {
+        self.end
     }
 }
 impl IntoIterator for VPNRange {

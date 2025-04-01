@@ -4,7 +4,7 @@ use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
-use crate::mm::{translated_refmut,translated_byte_buffer, translated_str};
+use crate::mm::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
 use crate::task::{current_task, current_user_token, MapFdControl};
 use alloc::string::String;
 
@@ -26,10 +26,17 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ptr::{self, addr_of_mut, null_mut};
 use core::slice;
-use alloc::vec;
+use alloc::{task, vec};
 
 //const HEAP_MAX: usize = 0;
 pub const AT_FDCWD: isize = -100;
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct IoVec {
+    pub base: usize,
+    pub len: usize,
+}
 
 pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
     let token = current_user_token();
@@ -594,5 +601,45 @@ fn parse_fd_path(fd: isize,path:*const u8)->Option<String>{
     else{
         drop(inner);
         return None;
+    }
+}
+
+pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->isize{
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    
+    if fd < 0 {
+        return -3;
+    }
+    if fd >= inner.fd_table.len() as isize {
+        return -4;
+    }
+    if let Some(file) = &inner.fd_table[fd as usize]{
+        let mut offset = file.get_offset();
+        let mut total_write_size = 0;
+        let iov_iter = iov;
+        for _i in 0..iovcnt{
+            let iovs = translated_ref(token, iov_iter);
+            if iovs.len == 0{
+                unsafe {
+                    let _ = iov_iter.add(1);
+                }
+                continue;
+            }
+            let ptr = iovs.base;
+            let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
+            let write_size = file.write_at(*offset, buf);
+            total_write_size += write_size;
+            *offset += write_size;
+            unsafe {
+                let _ = iov_iter.add(1);
+            }
+        }
+        drop(offset);
+        file.seek(total_write_size as i64, vfs_defs::SeekFlags::SEEK_CUR);
+        return total_write_size as isize;
+    }else {
+        return -1;
     }
 }

@@ -5,6 +5,20 @@ use super::{Dentry,Inode};
 use bitflags::*;
 use alloc::vec::Vec;
 
+
+bitflags! {
+    #[derive(PartialEq)]
+    ///
+    pub struct SeekFlags: i32 {
+        ///
+        const SEEK_SET = 0;
+        ///
+        const SEEK_CUR = 1;
+        ///
+        const SEEK_END = 2;
+    }
+}
+
 bitflags! {
     ///Open file flags
     pub struct OpenFlags: u32 {
@@ -111,6 +125,37 @@ pub trait File: Send + Sync{
             v.extend_from_slice(&buffer[..len]);
         }
         v
+    }
+    ///
+    fn seek(&self,pos:i64,flags:SeekFlags)->isize{
+        let mut cur_pos = self.get_offset();
+        match flags {
+            SeekFlags::SEEK_CUR=>{
+                if pos < 0{
+                    if *cur_pos as i64 - pos.abs() < 0 {
+                        return -1;
+                    }
+                    *cur_pos -= pos.abs() as usize;
+                } else {
+                    *cur_pos += pos as usize;
+                }
+            }
+            SeekFlags::SEEK_SET=>{
+                *cur_pos = pos as usize;
+            }
+            SeekFlags::SEEK_END=>{
+                let size = self.get_dentry().get_inode().unwrap().get_size() as usize;
+                if pos < 0 {
+                    *cur_pos = size - pos.abs() as usize;
+                } else {
+                    *cur_pos = size + pos as usize;
+                }
+            }
+            _ =>{
+                return -1;
+            }
+        }
+        return *cur_pos as isize;
     }
 }
 
