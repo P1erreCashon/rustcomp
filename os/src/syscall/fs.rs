@@ -324,6 +324,55 @@ pub fn sys_fstat(fd:usize,kst:*mut Kstat)->isize{
     return -1;
 }
 
+pub fn sys_fstatat(dirfd:usize,path:*const u8,kst:*mut Kstat,_flags:i32)->isize{
+    if dirfd == 0 || dirfd == 1{
+     //   if path.is_null() && (_flags & 0x1000) != 0{
+            let token = current_user_token();
+            *translated_refmut(token, kst) = vfs_defs::Kstat{
+                st_dev: 0,
+                st_ino: 0,
+                st_mode: 0x81B6,
+                st_nlink: 0,
+                st_uid: 0,
+                st_gid: 0,
+                st_rdev: 0,
+                __pad: 0,
+                st_size: 0,
+                st_blksize: 0,
+                __pad2: 0,
+                st_blocks: 0,
+                st_atime_sec: 0,
+                st_atime_nsec: 0,
+                st_mtime_sec: 0,
+                st_mtime_nsec: 0,
+                st_ctime_sec: 0,
+                st_ctime_nsec: 0,
+                unused: 0,
+            };
+            return 0;
+      //  }
+    }
+    let path = parse_fd_path(dirfd as isize, path);
+    if path.is_none(){
+        return -1;
+    }
+    let path = path.unwrap();
+    if let Some(old) = path_to_dentry(&path){
+        let r = old.get_inode().unwrap().get_attr();
+        if r.is_err(){
+            return -1;
+        }
+        let token = current_user_token();
+        let kst = translated_refmut(token, kst);
+        let attr = r.unwrap();
+        *kst = attr;
+        return 0;
+    }
+    else {
+        -1
+    }
+}
+
 /*
 addr:
 指定映射被放置的虚拟地址，如果将addr指定为NULL，那么内核会为映射分配一个合适的地址。如果addr为一个非NULL值，
@@ -585,6 +634,9 @@ pub fn sys_unlink(dirfd:isize,path: *const u8,_flags:u32) -> isize {
 }
 
 fn parse_fd_path(fd: isize,path:*const u8)->Option<String>{
+    if fd == 0 || fd == 1{
+        return None;
+    }
     let token = current_user_token();
     let path = translated_str(token, path);
     if path.chars().next() == Some('/') || fd == AT_FDCWD{

@@ -132,22 +132,32 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
     let path = translated_str(token, path);
     log_debug!("exec path={}",path);
     let mut args_vec: Vec<String> = Vec::new();
+    let mut first_arg = true;
     loop {
         let arg_str_ptr = *translated_ref(token, args);
         if arg_str_ptr == 0 {
             break;
         }
-        args_vec.push(translated_str(token, arg_str_ptr as *const u8));
+        if first_arg{
+            let mut name = translated_str(token, arg_str_ptr as *const u8);
+            name.insert_str(0, "./");
+            args_vec.push(name);
+            first_arg = false;
+        }
+        else{
+            args_vec.push(translated_str(token, arg_str_ptr as *const u8));
+        }
+        
         unsafe {
             args = args.add(1);
         }
     }
+    println!("exec path={}",path);
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let all_data = app_inode.read_all();
         let task = current_task().unwrap();
-        let argc = args_vec.len();
         task.exec(all_data.as_slice(),args_vec);
-        argc as isize
+        0
     } else {
         -1
     }
@@ -445,7 +455,8 @@ pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> isize {
             panic!("CLOCK_PROCESS_CPUTIME_ID/CLOCK_THREAD_CPUTIME_ID unsupported!");
         }
         _ => {
-            panic!("unsupported clock_id!");
+            //panic!("unsupported clock_id!");
+            return -1;
         }
     }
     0

@@ -428,14 +428,26 @@ impl TaskControlBlock {
         user_sp = (user_sp - 1) & !0xf;
         // 2. 压入 env string
 
-    //    data = 0;
-    //    self.push_into_user_stack(token,&mut user_sp,data);
+        data = 0;
+        self.push_into_user_stack(token,&mut user_sp,data);
 
-        // 3. 压入 arg string
-    //    data = 0;
-    //    self.push_into_user_stack(token,&mut user_sp,data);
+        user_sp -= user_sp % 16;
 
-    //    user_sp -= user_sp % 16;
+        // 3. 压入 arg string 
+
+        let mut argv_addr:Vec<usize> = vec![0;args.len()];
+        for i in 0..args.len() {
+            user_sp -= args[i].len() + 1;
+            argv_addr[i] = user_sp;
+            let mut p = user_sp;
+            for c in args[i].as_bytes() {
+                *translated_refmut(memory_set.token(), p as *mut u8) = *c;
+                p += 1;
+            }
+            *translated_refmut(memory_set.token(), p as *mut u8) = 0;
+        }
+
+        user_sp -= user_sp % 16;
 
         // 4. 压入 auxv
         let mut aux = AuxvT::new(AT_NULL, 0);
@@ -464,7 +476,8 @@ impl TaskControlBlock {
         // 5. 压入 envp
         data = 0;
         self.push_into_user_stack(token,&mut user_sp,data);
-        // push arguments on user stack
+
+        //push *argv
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
         let argv_base = user_sp;
         let mut argv: Vec<_> = (0..=args.len())
@@ -476,18 +489,11 @@ impl TaskControlBlock {
             })
             .collect();
         *argv[args.len()] = 0;
-        for i in 0..args.len() {
-            user_sp -= args[i].len() + 1;
-            *argv[i] = user_sp;
-            let mut p = user_sp;
-            for c in args[i].as_bytes() {
-                *translated_refmut(memory_set.token(), p as *mut u8) = *c;
-                p += 1;
-            }
-            *translated_refmut(memory_set.token(), p as *mut u8) = 0;
+        for i in 0..args.len(){
+            *argv[i] = argv_addr[i];
         }
         //push argc on stack
-        data = args.len() as u64;
+        data = args.len() as u64;        
         self.push_into_user_stack(token,&mut user_sp,data);
         // make the user_sp aligned to 8B for k210 platform
         user_sp -= user_sp % core::mem::size_of::<usize>();
@@ -505,8 +511,8 @@ impl TaskControlBlock {
         let mut trap_cx = TrapFrame::new();
         trap_cx[TrapFrameArgs::SEPC] = entry_point;
         trap_cx[TrapFrameArgs::SP] = user_sp;
-        trap_cx[TrapFrameArgs::ARG0] = args.len();
-        trap_cx[TrapFrameArgs::ARG1] = argv_base;
+    //    trap_cx[TrapFrameArgs::ARG0] = args.len();  //这一句会干死glibc的动态链接器 ..?
+    //    trap_cx[TrapFrameArgs::ARG1] = argv_base;   
         trap_cx[TrapFrameArgs::TLS] = tls_addr as usize;
         // TODO: Set Kernel Stack Top
         *inner.get_trap_cx() = trap_cx;

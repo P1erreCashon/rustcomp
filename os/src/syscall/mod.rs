@@ -17,6 +17,7 @@ const SYSCALL_MKDIRAT: usize = 34;
 const SYSCALL_DUP: usize = 23;
 const SYSCALL_DUP3: usize =  24;//?
 //const SYSCALL_DUP2: usize =  ???
+const SYSCALL_IOCTL:usize = 29;
 const SYSCALL_UMOUNT: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
 const SYSCALL_STATFS: usize = 43;
@@ -30,6 +31,7 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_READLINKAT:usize = 78;
+const SYSCALL_FSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_UTIMENSAT:usize = 88;
 const SYSCALL_EXIT: usize = 93;
@@ -79,6 +81,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
    // println!("syscallid:{}",syscall_id);
     let mut result:isize = 0;
     match syscall_id {
+        SYSCALL_IOCTL => {
+            result = 0;
+            log_debug!("syscall_ioctl result:{}",result);
+        }
         SYSCALL_CHDIR => {
             result = sys_chdir(args[0] as *const u8);
             log_debug!("syscall_chdir result:{}",result);
@@ -113,6 +119,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_WRITEV =>{
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
+            log_debug!("syscall_writeev result:{}",result);
         },
         SYSCALL_EXIT => {
             log_debug!("syscall_exit exit code:{}",args[0]);
@@ -176,9 +183,13 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_lseek(args[0] as isize,args[1] as isize,args[2]);
             log_debug!("syscall_lseek result:{}",result);
         },
+        SYSCALL_FSTATAT => {
+            result = sys_fstatat(args[0],args[1] as *const u8,args[2] as *mut vfs_defs::Kstat,args[3] as i32);
+            log_debug!("syscall_fstatat result:{}",result);
+        },
         SYSCALL_FSTAT => {
             result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
-            log_debug!("syscall_umount result:{}",result);
+            log_debug!("syscall_fstat result:{}",result);
         },
         SYSCALL_UTIMENSAT => {
             result = sys_utimensat(args[0] as isize,args[1] as *const u8,args[2] as *const TimeSpec,args[3] as i32);

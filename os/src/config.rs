@@ -12,7 +12,7 @@ pub const USER_MMAP_TOP: usize = 0x6000_0000;
 pub const MAX_FD:usize = 1024;
 //pub const PAGE_SIZE: usize = 0x1000;
 #[allow(unused)]
-pub const USER_HEAP_SIZE: usize = 32768;
+pub const USER_HEAP_SIZE: usize = 0x8000;
 //pub const PAGE_SIZE_BITS: usize = 0xc;
 
 

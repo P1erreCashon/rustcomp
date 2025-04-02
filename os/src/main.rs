@@ -117,9 +117,12 @@ impl ArchInterface for ArchInterfaceImpl {
                 let args = ctx.args();
                 // get system call return value
                 // info!("syscall: {}", ctx[TrapFrameArgs::SYSCALL]);
+                let id = ctx[TrapFrameArgs::SYSCALL];
                 let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2],args[3],args[4],args[5]]);
                 // cx is changed during sys_exec, so we have to call it again
-                ctx[TrapFrameArgs::RET] = result as usize;
+                if id != 93{//exec don't return
+                    ctx[TrapFrameArgs::RET] = result as usize;//exec中这一句会干死glibc的动态链接器
+                }
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
                 /* 
