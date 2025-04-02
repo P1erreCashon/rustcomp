@@ -83,13 +83,3 @@ pub fn remove_from_pid2task(pid: usize) {
         // 不再 panic，而是记录警告
     }
 }
-///Interface offered to get task from pid
-pub fn get_task_from_pid(pid:usize) -> Option<Arc<TaskControlBlock>> {
-    let manager = TASK_MANAGER.lock();
-    for task in manager.ready_queue.iter(){
-        if task.getpid() == pid{
-            return Some(task.clone());
-        }
-    }
-    return None;
-}
