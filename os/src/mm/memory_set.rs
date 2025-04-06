@@ -7,7 +7,7 @@ use alloc::alloc::dealloc;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use arch::{USER_VADDR_END,PAGE_SIZE};
-use crate::config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP};
+use config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;

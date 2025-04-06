@@ -95,7 +95,9 @@ impl Dentry for EfsDentry{
         let (readable,writable) = flags.read_write();
         Arc::new(EfsFile::new(readable, writable, FileInner::new(self)))
     }
-
+    fn load_dir(self:Arc<Self>)->SysResult<()> {
+        unimplemented!()
+    }
 }
 
 impl Drop for EfsDentry{

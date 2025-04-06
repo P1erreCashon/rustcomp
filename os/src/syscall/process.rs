@@ -1,9 +1,10 @@
+use core::f32::consts::E;
 use core::ops::Add;
 
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    self, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
+    self, UNAME,add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -12,12 +13,13 @@ use arch::time::{self, Time};
 use arch::{TrapFrameArgs,PAGE_SIZE};
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
-use crate::config::{UNAME, USER_STACK_SIZE,RLimit,Resource};
+use config::{ USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
 use crate::mm::{MapPermission, MapArea, from_prot};
 use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
+use system_result::{SysError,SysResult};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 bitflags! {
@@ -73,15 +75,15 @@ pub fn sys_exit(exit_code: i32) -> ! {
     panic!("Unreachable in sys_exit!");
 }
 
-pub fn sys_yield() -> isize {
+pub fn sys_yield() -> SysResult<isize> {
     suspend_current_and_run_next();
-    0
+    Ok(0)
 }
 
-pub fn sys_get_time(ts:*mut TimeSpec) -> isize {
+pub fn sys_get_time(ts:*mut TimeSpec) -> SysResult<isize> {
     let token = current_user_token();
     if ts.is_null(){
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let ts = translated_refmut(token, ts);
     let usec = Time::now().to_usec();
@@ -89,18 +91,18 @@ pub fn sys_get_time(ts:*mut TimeSpec) -> isize {
         sec:usec/1000000,
         usec,
     };
-    0
+    Ok(0)
 }
 
-pub fn sys_getpid() -> isize {
-    current_task().unwrap().pid.0 as isize
+pub fn sys_getpid() -> SysResult<isize> {
+    Ok(current_task().unwrap().pid.0 as isize)
 }
 
-pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,ctid:*mut i32) -> isize {
+pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,ctid:*mut i32) -> SysResult<isize> {
     let flags = CloneFlags::from_bits(flags as u64 & !0xff);
     let token = current_user_token();
     if flags.is_none(){
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let flags = flags.unwrap();
     let current_task = current_task().unwrap();
@@ -124,10 +126,10 @@ pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,cti
     }
     // add new task to scheduler
     add_task(new_task);
-    new_pid as isize
+    Ok(new_pid as isize)
 }
 
-pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
+pub fn sys_exec(path: *const u8, mut args: *const usize) -> SysResult<isize> {
     let token = current_user_token();
     let path = translated_str(token, path);
     log_debug!("exec path={}",path);
@@ -152,20 +154,16 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
             args = args.add(1);
         }
     }
-    println!("exec path={}",path);
-    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
-        let all_data = app_inode.read_all();
-        let task = current_task().unwrap();
-        task.exec(all_data.as_slice(),args_vec);
-        0
-    } else {
-        -1
-    }
+    let app_inode = open_file(path.as_str(), OpenFlags::RDONLY)?;
+    let all_data = app_inode.read_all();
+    let task = current_task().unwrap();
+    task.exec(all_data.as_slice(),args_vec);
+    Ok(0)
 }
 
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
-pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
+pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
     let task = current_task().unwrap();
     // find a child process
     log_debug!("waitpid pid={}",pid);
@@ -176,7 +174,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
         .iter()
         .any(|p| pid == -1 || pid as usize == p.getpid())
     {
-        return -1;
+        return Err(SysError::ESRCH);
         // ---- release current PCB
     }
     drop(inner);
@@ -202,7 +200,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
             if exit_code_ptr != core::ptr::null_mut(){
                 *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
             }
-            return found_pid as isize
+            return Ok(found_pid as isize);
         } else {
             drop(inner);
             suspend_current_and_run_next();
@@ -213,43 +211,37 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 }
 
 ///
-pub fn sys_chdir(path: *const u8) -> isize {
+pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
     let token = current_user_token();
     let path = translated_str(token, path);
-    println!("chdir_path:{}  path_len:{}",path,path.len());
-    if let Some(dentry) = path_to_dentry(&path){
-        let task = current_task().unwrap();
-        let mut task_inner = task.inner_exclusive_access();
-        task_inner.cwd = dentry;
-        0
-    }
-    else {
-        -1
-    }
-
+    let dentry = path_to_dentry(&path)?;
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+    task_inner.cwd = dentry;
+    Ok(0)
 }
 
 
-pub fn sys_brk(new_brk:  usize) -> isize {
+pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     let cur_brk = task_inner.heap_top;
     //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
     if new_brk == 0 {
-        return cur_brk as isize;
+        return Ok(cur_brk as isize);
     }
     
     if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
         task_inner.heap_top = new_brk;
     //    return 0;
-        return new_brk as isize;
+        return Ok(new_brk as isize);
     }
 
     if new_brk > cur_brk {
         let user_stack_bottom = task_inner.stack_bottom;
         
         if new_brk >= user_stack_bottom -PAGE_SIZE { 
-            return cur_brk as isize;
+            return Ok(cur_brk as isize);
 //            return -1;
         }
         let cur_addr = VirtAddr::new(task_inner.max_data_addr).floor();
@@ -269,11 +261,11 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
-        return new_brk as isize;
+        return Ok(new_brk as isize);
      //   0
     }
     else if new_brk == cur_brk {
-          return cur_brk as isize;
+          return Ok(cur_brk as isize);
     //    -1
     }
     else {// 不考虑不合理的减小
@@ -294,17 +286,17 @@ pub fn sys_brk(new_brk:  usize) -> isize {
         // 不释放
         // new_brk 应当大于数据段起始 未做判断
         task_inner.heap_top = new_brk;
-        return new_brk as isize;
+        return Ok(new_brk as isize);
     //   0
     }
 }
 
-pub fn sys_times(tms_ptr: *mut Tms) -> isize {
+pub fn sys_times(tms_ptr: *mut Tms) -> SysResult<isize> {
     let binding = current_task().unwrap();
     let token = current_user_token();
     let taskinner = binding.inner_exclusive_access();
     if tms_ptr.is_null(){
-        return -1;
+        return Err(SysError::EINVAL);
     }
     // 安全地获取一个可变引用
     let tms = translated_refmut(token, tms_ptr);
@@ -313,19 +305,19 @@ pub fn sys_times(tms_ptr: *mut Tms) -> isize {
     tms.tms_stime = Time::now().to_msec() as usize - taskinner.tms.tms_stime;
     tms.tms_cutime = Time::now().to_msec() as usize - taskinner.tms.tms_cutime;
     tms.tms_cstime = Time::now().to_msec() as usize - taskinner.tms.tms_cstime;
-    tms.tms_cutime as isize
+    Ok(tms.tms_cutime as isize)
 }
 
-pub fn sys_uname(mes: *mut Utsname) -> isize {
+pub fn sys_uname(mes: *mut Utsname) -> SysResult<isize> {
     let uname = unsafe {
         if mes.is_null() {
-            return -1;
+            return Err(SysError::EINVAL);
         }
         &mut *mes
     };
     //
     uname.copy_from(&UNAME);
-    0
+    Ok(0)
 }
 
 
@@ -335,14 +327,14 @@ struct timespec {
 	long   tv_nsec;       /* 纳秒, 范围在0~999999999 */
 };
 */
-pub fn sys_nanosleep(timespec:*const TimeSpec)->isize{
+pub fn sys_nanosleep(timespec:*const TimeSpec)->SysResult<isize>{
     if timespec.is_null(){
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let token = current_user_token();
     let timespec = translated_ref(token, timespec);
     if timespec.usec > 99999999{
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let total_time = timespec.sec * 1000000000 + timespec.usec;
     let start_time = Time::now().to_nsec();
@@ -352,48 +344,48 @@ pub fn sys_nanosleep(timespec:*const TimeSpec)->isize{
             suspend_current_and_run_next();
         }
         else{
-            return 0;
+            return Ok(0);
         }
     }
 }
 
-pub fn sys_getppid()->isize{
+pub fn sys_getppid()->SysResult<isize>{
     let current = current_task().unwrap();
     let inner = current.inner_exclusive_access();
     if inner.parent.is_none(){
-        return -1;
+        return Err(SysError::ESRCH);
     }
     let parent = inner.parent.clone().unwrap().upgrade().unwrap();
     let ret = parent.pid.0 as isize;
-    ret
+    Ok(ret)
 }
 
-pub fn sys_set_tid_address(tidptr:usize)->isize{
+pub fn sys_set_tid_address(tidptr:usize)->SysResult<isize>{
     let current = current_task().unwrap();
     let mut inner = current.inner_exclusive_access();
     inner.tidaddress.clear_child_tid = Some(tidptr);
-    tidptr as isize
+    Ok(tidptr as isize)
 }
 
 
-pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> isize {
+pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit: *mut RLimit) -> SysResult<isize> {
     let task;
     let token = current_user_token();
     if pid == 0{
         task = current_task().unwrap();
     }
     else {
-        if let Some(t) = pid2task(pid){//这里要改！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+        if let Some(t) = pid2task(pid){
             task = t;
         }
         else {
-            return -1;
+            return Err(SysError::ESRCH);
         }
     }
     let mut inner = task.inner_exclusive_access();
     let resource = Resource::new(resource);
     if resource.is_none(){
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let resource = resource.unwrap();
     if !old_limit.is_null(){
@@ -406,7 +398,7 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
                 }
             },
             Resource::NOFILE=>{
-                limit = inner.fd_table_rlimit;
+                limit = inner.fd_table.rlimit();
             }
             _=>{
                 limit = RLimit{
@@ -421,12 +413,12 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
         let limit = *translated_ref(token, new_limit);
         match resource {
             Resource::NOFILE=>{
-                inner.set_fd_rlimit(limit);
+                inner.fd_table.set_rlimit(limit);
             },
             _=>{}
         }
     }
-    return 0;
+    return Ok(0);
 } 
 
 /*
@@ -440,9 +432,9 @@ pub const CLOCK_MONOTONIC: usize = 1; //POSIX时钟,以恒定速率运行;不会
 pub const CLOCK_PROCESS_CPUTIME_ID: usize = 2;
 pub const CLOCK_THREAD_CPUTIME_ID: usize = 3; //是CPU中的硬件计时器中实现的.
 
-pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> isize {
+pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> SysResult<isize> {
     if tp.is_null() {
-        return -1;
+        return Err(SysError::EINVAL);
     }
     match clockid {
         CLOCK_REALTIME | CLOCK_MONOTONIC => {
@@ -456,18 +448,18 @@ pub fn sys_clock_gettime(clockid: usize, tp: *mut TimeSpec) -> isize {
         }
         _ => {
             //panic!("unsupported clock_id!");
-            return -1;
+            return Ok(0);
         }
     }
-    0
+    Ok(0)
 }
 
-pub fn sys_exit_group(exit_code: i32) -> isize { //退出线程组，但没有子线程
+pub fn sys_exit_group(exit_code: i32) -> ! { //退出线程组，但没有子线程
     exit_current_and_run_next((exit_code & 0xFF) << 8);//posix标准退出码
     panic!("Unreachable in sys_exit!");
 }
 
-pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
+pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> SysResult<isize> {
     let token = current_user_token();
     for index in 0..len {
         let mut byte: u8 = 0;
@@ -485,29 +477,29 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> isize {
         let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
         *buf_ref = byte;
     }
-    return 0;
+    return Ok(0);
 } 
-pub fn sys_info(info: *mut SysInfo) -> isize {
+pub fn sys_info(info: *mut SysInfo) -> SysResult<isize> {
     let token = current_user_token();
     let info_ref = translated_refmut(token, info);
     *info_ref = SysInfo::default();
-    0
+    Ok(0)
 }
 
-pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> isize {
+pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> {
     match log_type {
         2 |3 |4 => {
-            0
+            Ok(0)
         }
         _ => {
-            0
+            Ok(0)
         }
     }
 }
 
-pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> isize {
+pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> {
     if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
@@ -539,17 +531,17 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> isize {
             }
         }
     } 
-    0
+    Ok(0)
 }
-pub fn sys_kill(pid: usize, signal: u32) -> isize {
+pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
         if let Some(flag) = SignalFlags::from_bits(signal) {
             process.inner_exclusive_access().signals |= flag;
-            0
+            Ok(0)
         } else {
-            -1
+            Err(SysError::EINVAL)
         }
     } else {
-        -1
+        Err(SysError::ESRCH)
     }
 }

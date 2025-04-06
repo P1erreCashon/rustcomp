@@ -16,6 +16,7 @@ const SYSCALL_LINKAT: usize = 37;
 const SYSCALL_MKDIRAT: usize = 34;
 const SYSCALL_DUP: usize = 23;
 const SYSCALL_DUP3: usize =  24;//?
+const SYSCALL_FCNTL:usize = 25;
 //const SYSCALL_DUP2: usize =  ???
 const SYSCALL_IOCTL:usize = 29;
 const SYSCALL_UMOUNT: usize = 39;
@@ -30,6 +31,7 @@ const SYSCALL_LSEEK:usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
+const SYSCALL_SENDFILE:usize = 71;
 const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
@@ -73,41 +75,37 @@ use arch::addr::VirtAddr;
 use fs::*;
 use process::*;
 use crate::task::{pid2task, SignalFlags, suspend_current_and_run_next, exit_current_and_run_next, check_signals_error_of_current};
-use crate::{config::RLimit, task::{TimeSpec, Tms, Utsname, SysInfo}};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
+use config::RLimit;
+use system_result::{SysResult,SysError};
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
    // println!("syscallid:{}",syscall_id);
-    let mut result:isize = 0;
+    let result:SysResult<isize>;
     match syscall_id {
         SYSCALL_IOCTL => {
-            result = 0;
-            log_debug!("syscall_ioctl result:{}",result);
+            result = Ok(0);
         }
         SYSCALL_CHDIR => {
             result = sys_chdir(args[0] as *const u8);
-            log_debug!("syscall_chdir result:{}",result);
         }
         SYSCALL_LINKAT => {
             result = sys_link(args[0] as isize,args[1] as *const u8,args[2] as isize,args[3] as *const u8,args[4] as u32);
-            log_debug!("syscall_link result:{}",result);
         }
         SYSCALL_UNLINKAT => {
             result = sys_unlink(args[0] as isize,args[1] as *const u8,args[2] as u32);
-            log_debug!("syscall_unlink result:{}",result);
         }
         SYSCALL_MKDIRAT => {
             result = sys_mkdirat(args[0] as isize,args[1] as *const u8, args[2] as u32);
-            log_debug!("syscall_mkdir result:{}",result);
         }
         SYSCALL_OPENAT => {
             result = sys_openat(args[0] as isize,args[1] as *const u8, args[2] as u32,args[3] as u32);
-            log_debug!("syscall_open result:{}",result);
         },
         SYSCALL_CLOSE => {
             result = sys_close(args[0]);
-            log_debug!("syscall_close result:{} closed:{}",result,args[0]);
+            log_debug!("syscall_close  closed:{}",args[0]);
         },
         SYSCALL_READ => {
             result = sys_read(args[0], args[1] as *mut u8, args[2]);
@@ -119,7 +117,6 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_WRITEV =>{
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
-            log_debug!("syscall_writeev result:{}",result);
         },
         SYSCALL_EXIT => {
             log_debug!("syscall_exit exit code:{}",args[0]);
@@ -128,27 +125,23 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_YIELD => {
         //    log_debug!("syscall_yield");
-            sys_yield();
+            result = sys_yield();
         },
         SYSCALL_KILL => {
             log_debug!("syscall_kill pid={} signal={}", args[0], args[1]);
-            sys_kill(args[0], args[1] as u32);
+            result = sys_kill(args[0], args[1] as u32);
         },
         SYSCALL_GET_TIME => {
             result = sys_get_time(args[0] as *mut TimeSpec);
-            log_debug!("syscall_get_time result:{}",result);
         },
         SYSCALL_GETPID => {
             result = sys_getpid();
-            log_debug!("syscall_getpid result:{}",result);
         },
         SYSCALL_CLONE => {
             result = sys_clone(args[0],args[1] as *const u8,args[2] as *mut i32,args[3] as *mut i32,args[4] as *mut i32);
-            log_debug!("syscall_fork result:{}",result);
         },
         SYSCALL_EXEC => {
             result = sys_exec(args[0] as *const u8, args[1] as *const usize);
-            log_debug!("syscall_exec result:{}",result);
         },
         SYSCALL_WAITPID => {
             result = sys_waitpid(args[0] as isize, args[1] as *mut i32);
@@ -156,152 +149,122 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_PIPE => {
             result = sys_pipe(args[0] as *mut i32);
-            log_debug!("syscall_pipe result:{}",result);
         },
         SYSCALL_BRK => {
             log_debug!("syscall_brk arg:{:x}",args[0]);
             result = sys_brk(args[0]);
-            log_debug!("syscall_brk result:{:x}",result);
         },
         SYSCALL_MOUNT => {
             result = sys_mount(args[0] as *const u8,args[1] as *const u8,args[2] as *const u8,args[3] as u32,args[4] as *const u8,);
-            log_debug!("syscall_mount result:{}",result);
         },
         SYSCALL_UMOUNT => {
             result = sys_umount(args[0] as *const u8,args[1] as u32);
-            log_debug!("syscall_umount result:{}",result);
         },
         SYSCALL_STATFS => {
             result = sys_statfs(args[0] as *const u8,args[1] as *mut vfs_defs::StatFs);
-            log_debug!("syscall_statfs result:{}",result);
         },
         SYSCALL_FACCESSAT => {
             result = sys_faccessat(args[0] as isize,args[1] as *const u8,args[2],args[3] as i32);
-            log_debug!("syscall_statfs result:{}",result);
         },
         SYSCALL_LSEEK => {
             result = sys_lseek(args[0] as isize,args[1] as isize,args[2]);
-            log_debug!("syscall_lseek result:{}",result);
         },
         SYSCALL_FSTATAT => {
             result = sys_fstatat(args[0],args[1] as *const u8,args[2] as *mut vfs_defs::Kstat,args[3] as i32);
-            log_debug!("syscall_fstatat result:{}",result);
         },
         SYSCALL_FSTAT => {
             result = sys_fstat(args[0],args[1] as *mut vfs_defs::Kstat);
-            log_debug!("syscall_fstat result:{}",result);
         },
         SYSCALL_UTIMENSAT => {
             result = sys_utimensat(args[0] as isize,args[1] as *const u8,args[2] as *const TimeSpec,args[3] as i32);
-            log_debug!("syscall_utimensat result:{}",result);
         },
         SYSCALL_GETCWD => {
             result = sys_getcwd(args[0] as *mut u8, args[1] as usize);
-            log_debug!("syscall_getcwd result:{}",result);
         }
         SYSCALL_DUP => {
             result = sys_dup(args[0] as usize);
-            log_debug!("syscall_dup result:{}",result);
         }
         SYSCALL_DUP3 => {
             result = sys_dup3(args[0] as usize, args[1] as usize, 0);
-            log_debug!("syscall_dup3 result:{}",result);
+        }
+        SYSCALL_FCNTL => {
+            result = sys_fcntl(args[0] as isize, args[1] as isize, args[2]);
         }
         SYSCALL_TIMES => {
             result = sys_times(args[0] as *mut Tms);
-            log_debug!("syscall_times result:{}",result);
         }
         SYSCALL_UNAME => {
             result = sys_uname(args[0] as *mut Utsname);
-            log_debug!("syscall_uname result:{}",result);
         }
         SYSCALL_MMAP => {
             result = sys_mmap(args[0] as *mut usize, args[1], args[2] as i32, args[3] as i32, args[4],args[5] as i32);
-            log_debug!("syscall_mmap result:{}",result);
         }
         SYSCALL_MUNMAP => {
             result = sys_munmap(args[0] as *mut usize, args[1]);
-            log_debug!("syscall_munmap result:{}",result);
         }
         SYSCALL_GETDENTS64 => {
             result = sys_getdents(args[0] ,args[1] as *mut u8,args[2]);
-            log_debug!("syscall_getdents result:{}",result);
         }
         SYSCALL_NANOSLEEP => {
             result = sys_nanosleep(args[0] as *const TimeSpec);
-            log_debug!("syscall_nanosleep result:{}",result);
         }
         SYSCALL_GETPPID => {
             result = sys_getppid();
-            log_debug!("syscall_getppid result:{}",result);
         },
         SYSCALL_GETUID=>{//没有用户，返回代表root的0
-            result = 1;
-            log_debug!("syscall_getuid result:{}",result);
+            result = Ok(1);
         }
         SYSCALL_GETEUID=>{//没有用户，返回代表root的0
-            result = 1;
-            log_debug!("syscall_geteuid result:{}",result);
+            result = Ok(1);
         }
         SYSCALL_GETGID=>{//没有用户，返回代表root的0
-            result = 1;
-            log_debug!("syscall_getgid result:{}",result);
+            result = Ok(1);
         }
         SYSCALL_GETEGID=>{//没有用户，返回代表root的0
-            result = 1;
-            log_debug!("syscall_getteuid result:{}",result);
+            result = Ok(1);
         }
         SYSCALL_SET_ROBUST_LIST=>{//没有影响
-            result = 0;
-            log_debug!("syscall_set_robust_list result:{}",result);
+            result = Ok(0);
         }
         SYSCALL_GET_ROBUST_LIST=>{//没有影响
-            result = 0;
-            log_debug!("syscall_get_robust_list result:{}",result);
+            result = Ok(0);
         }
         SYSCALL_SET_TID_ADDRESS=>{//
             result = sys_set_tid_address(args[0]);
-            log_debug!("syscall_settidaddr result:{:x}",result);
         }
         SYSCALL_PRLIMIT64=>{//
             result = sys_prlimit64(args[0], args[1] as i32, args[2] as *const RLimit, args[3] as *mut RLimit);
-            log_debug!("syscall_prlimit64 result:{:x}",result);
+        }
+        SYSCALL_SENDFILE=>{//
+            result = sys_sendfile(args[0] as isize, args[1] as isize, args[2] as *mut usize, args[3]);
         }
         SYSCALL_READLINKAT=>{//
-            result = -1;
-            log_debug!("syscall_readlinkat result:{:x}",result);
+            result = Ok(-1);
         }
         SYSCALL_SETGID => {// 无
-            result = 0;
-            log_debug!("syscall_setgid result:{}",result);
+            result = Ok(0);
         }
         SYSCALL_SETUID => {// 无
-            result = 0;
-            log_debug!("syscall_setuid result:{}",result);
+            result = Ok(0);
         }
         SYSCALL_EXIT_GROUP => {// 无返回值
             log_debug!("syscall_exit exit code:{}", args[0]);
-            result = sys_exit_group(args[0] as i32);
+            sys_exit_group(args[0] as i32);
         }
         SYSCALL_CLOCK_GETTIME => {
             result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
-
         }
         SYSCALL_GET_RANDOM => {
             result = sys_get_random(args[0] as *mut u8, args[1] as usize, args[2] as usize);
-            log_debug!("syscall_get_random result:{}",result);
         }
         SYSCALL_SYSINFO => {
             result = sys_info(args[0] as *mut SysInfo);
-            log_debug!("syscall_info result:{}",result);
         }
         SYSCALL_SYSLOG => {
             result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
-            log_debug!("syscall_log result:{}",result);
         }
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
-            log_debug!("syscall_mprotect result:{}",result);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
@@ -311,5 +274,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         exit_current_and_run_next(code as i32);
         unreachable!("Should have exited");
     }
-    result
+    if let Err(e) = result{
+        log_debug!("Syscall {} err:{}",syscall_id,e.as_str());
+        return -(e as isize);
+    }   
+    else{
+        if syscall_id != 63 && syscall_id != 64{
+            log_debug!("Syscall {} result:{}",syscall_id,result.clone().unwrap());
+        }
+        return result.unwrap();
+    }
 }

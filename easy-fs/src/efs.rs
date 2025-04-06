@@ -175,7 +175,7 @@ impl FileSystemType for EfsFsType{
         parent:Option<Arc<dyn Dentry>>,
         _flags: MountFlags,
         device:Option<Arc<dyn BlockDevice>>)->SysResult<Arc<dyn Dentry>> {
-        let inner = SuperBlockInner::new(device.unwrap(), self.clone());
+        let inner = SuperBlockInner::new(device, self.clone());
         let superblock = Arc::new(EfsSuperBlock::new(inner));
         let root_inode = EfsSuperBlock::root_inode(superblock.clone());
         let root_dentry;

@@ -1,15 +1,16 @@
 //! File and filesystem-related syscalls
-use crate::config::USER_STACK_TOP;
+use config::USER_STACK_TOP;
 use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
 use crate::mm::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
-use crate::task::{current_task, current_user_token, MapFdControl};
+use crate::task::{current_task, current_user_token, Fd, FdFlags, MapFdControl, TimeSpec};
 use alloc::string::String;
 
 use arch::addr::{VirtAddr, VirtPage};
 use arch::PAGE_SIZE;
+use arch::time::Time;
 use device::BLOCK_DEVICE;
 use vfs_defs::Kstat;
 use vfs_defs::MountFlags;
@@ -27,6 +28,7 @@ use alloc::vec::Vec;
 use core::ptr::{self, addr_of_mut, null_mut};
 use core::slice;
 use alloc::{task, vec};
+use system_result::{SysError,SysResult};
 
 //const HEAP_MAX: usize = 0;
 pub const AT_FDCWD: isize = -100;
@@ -38,123 +40,83 @@ pub struct IoVec {
     pub len: usize,
 }
 
-pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> isize {
+pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> SysResult<isize> {
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        println!("write1");
-        return -1;
+
+    let file = inner.fd_table.get(fd)?;
+    let file = file.file();
+    if !file.writable() {
+        return Err(SysError::EPERM);
     }
-    
-    if let Some(file) = &inner.fd_table[fd] {
-        if !file.writable() {
-            println!("write2 fd:{}",fd);
-            return -1;
-        }
-        let file = file.clone();
-        // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        file.write(translated_byte_buffer(token, buf, len)) as isize
-    }
-     else {
-        println!("write3");
-        -1
-    }
+    let file = file.clone();
+    // release current task TCB manually to avoid multi-borrow
+    drop(inner);
+    Ok(file.write(translated_byte_buffer(token, buf, len)) as isize)
 }
 
 
-pub fn sys_read(fd: usize, buf: *mut u8, len: usize) -> isize {
+pub fn sys_read(fd: usize, buf: *mut u8, len: usize) -> SysResult<isize> {
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
+    let file = inner.fd_table.get(fd)?;
+    let file = file.file();
+    if !file.readable() {
+        return Err(SysError::EPERM);
     }
-    if let Some(file) = &inner.fd_table[fd] {
-        let file = file.clone();
-        if !file.readable() {
-            return -1;
-        }
-        // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        file.read(translated_byte_buffer(token, buf, len)) as isize
-    } else {
-        -1
-    }
+    // release current task TCB manually to avoid multi-borrow
+    drop(inner);
+    Ok(file.read(translated_byte_buffer(token, buf, len)) as isize)
 }
 
-pub fn sys_openat(pfd:isize,path: *const u8, flags: u32,_mode:u32) -> isize {
+pub fn sys_openat(pfd:isize,path: *const u8, flags: u32,_mode:u32) -> SysResult<isize> {
     let task = current_task().unwrap();
     let token = current_user_token();
     let path = translated_str(token, path);
     if path.chars().next() == Some('/') || pfd == AT_FDCWD{
-        if let Some(inode) = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
-            let mut inner = task.inner_exclusive_access();
-            let fd = inner.alloc_fd();
-            inner.fd_table[fd] = Some(inode);
-            return fd as isize;
-        } else {
-            return -1;
-        }
+        let inode = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap())?;
+        let mut inner = task.inner_exclusive_access();
+        let fd = inner.fd_table.insert(Some(Fd::new(inode, FdFlags::empty())))?;
+        return Ok(fd as isize);
     }
     let mut inner = task.inner_exclusive_access();
-    if let Some(file) = &inner.fd_table[pfd as usize]{
-        let father_path = file.get_dentry().path();
-        let child_path = father_path+&path;
-        if let Some(inode) = open_file(child_path.as_str(), OpenFlags::from_bits(flags).unwrap()) {
-            let fd = inner.alloc_fd();
-            inner.fd_table[fd] = Some(inode);
-            return fd as isize;
-        } else {
-            return -1;
-        }
-
-    }
-    return -1;
-
+    let file = inner.fd_table.get(pfd as usize)?;
+    let file = file.file();
+    let father_path = file.get_dentry().path();
+    let child_path = father_path+&path;
+    let inode = open_file(child_path.as_str(), OpenFlags::from_bits(flags).unwrap())?;
+    let fd = inner.fd_table.insert(Some(Fd::new(inode, FdFlags::empty())))?;
+    return Ok(fd as isize);
 }
 
-pub fn sys_close(fd: usize) -> isize {
+pub fn sys_close(fd: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if inner.fd_table[fd].is_none() {
-        return -1;
-    }
-    inner.fd_table[fd].take();
-    0
+    let _ = inner.fd_table.remove(fd)?;
+    return Ok(0);
 }
 
 ///
-pub fn sys_mkdirat(pfd:isize,path: *const u8,_mode:u32) -> isize {
+pub fn sys_mkdirat(pfd:isize,path: *const u8,_mode:u32) -> SysResult<isize> {
     let task = current_task().unwrap();
     let token = current_user_token();
     let path = translated_str(token, path);
     if path.chars().next() == Some('/') || pfd == AT_FDCWD{
-        if let Some(_inode) = create_file(path.as_str(), vfs_defs::DiskInodeType::Directory) {
-            return 0;
-        } else {
-            return -1;
-        }
+        let _inode = create_file(path.as_str(), vfs_defs::DiskInodeType::Directory)?;
+        return Ok(0);
     }
     let inner = task.inner_exclusive_access();
-    if let Some(file) = &inner.fd_table[pfd as usize]{
-        let father_path = file.get_dentry().path();
-        let child_path = father_path+&path;
-        if let Some(_inode) = create_file(child_path.as_str(), vfs_defs::DiskInodeType::Directory)  {
-            return 0;
-        } else {
-            return -1;
-        }
-
-    }
-    return -1;
+    let file = inner.fd_table.get(pfd as usize)?;
+    let file = file.file();
+    let father_path = file.get_dentry().path();
+    let child_path = father_path+&path;
+    let _inode = create_file(child_path.as_str(), vfs_defs::DiskInodeType::Directory)?;
+    return Ok(0);
 }
 
-pub fn sys_pipe(pipe: *mut i32) -> isize {
+pub fn sys_pipe(pipe: *mut i32) -> SysResult<isize> {
     let task = current_task().unwrap();
     let token = current_user_token();
     //let mut inner = task.acquire_inner_lock();
@@ -162,119 +124,62 @@ pub fn sys_pipe(pipe: *mut i32) -> isize {
     //自身目录项
     let self_dentry = inner.cwd.clone();
     let (pipe_read, pipe_write) = make_pipe(self_dentry); //创建一个管道并获取其读端和写端
-    let read_fd = inner.alloc_fd();
-    inner.fd_table[read_fd] = Some(pipe_read);
-    let write_fd = inner.alloc_fd() ;
-    inner.fd_table[write_fd] = Some(pipe_write);
+    let read_fd = inner.fd_table.insert(Some(Fd::new(pipe_read, FdFlags::empty())))?;
+    let write_fd = inner.fd_table.insert(Some(Fd::new(pipe_write, FdFlags::empty())));
+    if let Err(e) = write_fd{
+        let _ = inner.fd_table.remove(read_fd);
+        return Err(e);
+    }
+    let write_fd = write_fd.unwrap();
     // 文件描述符写回到应用地址空间
     *translated_refmut(token, pipe) = read_fd as i32;
     *translated_refmut(token, unsafe { pipe.add(1) }) = write_fd as i32;
-    0
+    Ok(0)
 }
 
 //char *buf, size_t size;
 //long ret = syscall(SYS_getcwd, buf, size);
-pub fn sys_getcwd(cwd: *mut u8, size: usize) -> isize {
+pub fn sys_getcwd(cwd: *mut u8, size: usize) -> SysResult<isize> {
     if size <= 0 {
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let binding = current_task().unwrap();
+    let token = current_user_token();
     let task_inner = binding.inner_exclusive_access();
     let current_path = task_inner.cwd.path();
     if current_path.len() >= size {
-        return -2;
+        return Err(SysError::ENOENT);
     }
     let bytes = current_path.as_bytes();
-    unsafe {
-        ptr::copy_nonoverlapping(bytes.as_ptr(), cwd, bytes.len());
-    }
-    bytes.len() as isize
+    let cwd = translated_byte_buffer(token, cwd, bytes.len());
+    cwd.copy_from_slice(bytes);
+    Ok(bytes.len() as isize)
 }
 
 //int fd;
 //int ret = syscall(SYS_dup, fd);
-pub fn sys_dup(fd: usize) -> isize {
+pub fn sys_dup(fd: usize) -> SysResult<isize> {
     let binding = current_task().unwrap();
     let mut task_inner = binding.inner_exclusive_access();
-    let fd_table = &mut task_inner.fd_table;
-
-    // 检查文件描述符的有效性
-    if fd >= fd_table.len() {
-        return -1; // EBADF: 无效的文件描述符
-    }
-
-    // 获取要复制的文件对象
-    if let Some(file) = fd_table[fd].clone() { // 使用 clone 提前获取文件对象
-        // 找到第一个空闲的文件描述符位置
-        let mut new_fd = fd_table.len();
-        for (i, entry) in fd_table.iter().enumerate() {
-            if entry.is_none() {
-                new_fd = i;
-                break;
-            }
-        }
-
-        // 如果没有找到空闲位置，扩展 fd_table
-        if new_fd == fd_table.len() {
-            fd_table.push(None);
-        }
-
-        // 复制文件对象的引用到新的位置
-        fd_table[new_fd] = Some(file);
-
-        // 返回新的文件描述符
-        new_fd as isize
-    } else {
-        return -1;
-    }
+    return task_inner.fd_table.dup(fd);
 }
 
 //int old, int new;
 //int ret = syscall(SYS_dup3, old, new, 0);
-pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> isize {
+pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> SysResult<isize> {
     /*if old<0 || new<0 {
         return -1;
     }*/
     if old == new {
-        return new as isize;
+        return Ok(new as isize);
     }
     let binding = current_task().unwrap();
     let mut task_inner = binding.inner_exclusive_access();
     let fd_table = &mut task_inner.fd_table;
-
-    // 检查文件描述符的有效性
-    if old >= fd_table.len() {
-        return -1; // EBADF: 无效的文件描述符
-    }
-    // 获取要复制的文件对象
-    if let Some(file) = fd_table[old].clone() { // 使用 clone 提前获取文件对象
-        
-        if new >= fd_table.len() {
-            let cnt = new - fd_table.len() + 1;
-            for _ in 0..cnt {
-                fd_table.push(None);
-            }
-            if new != fd_table.len()-1 {
-                panic!("extend fd_table error!, len={}",fd_table.len());
-            }
-        }
-        else if fd_table[new].is_some() {
-            // new位置有效，需要关闭文件
-            //sys_close(new); 被锁阻塞
-            fd_table[new].take();
-        }
-
-        // 复制文件对象的引用到新的位置
-        fd_table[new] = Some(file);
-
-        // 返回新的文件描述符
-        new as isize
-    } else {
-        return -1;
-    }
+    return  fd_table.dup3(old, new, _flags);
 }
 
-pub fn sys_mount(_special:*const u8,dir:*const u8,fstype:*const u8,_flags:u32,_data:*const u8)->isize{
+pub fn sys_mount(_special:*const u8,dir:*const u8,fstype:*const u8,_flags:u32,_data:*const u8)->SysResult<isize>{
     let token = current_user_token();
     let dir = translated_str(token, dir);
     let fstype = translated_str(token, fstype);
@@ -282,95 +187,56 @@ pub fn sys_mount(_special:*const u8,dir:*const u8,fstype:*const u8,_flags:u32,_d
     if fstype == "vfat"{
         let mut name = String::new();
         let parent = path_to_father_dentry(dir.as_str(), &mut name);
+        let mount_parent;
         let device = BLOCK_DEVICE.get().unwrap().clone();
-        let r = ext4fstype.mount(name.as_str(), parent, MountFlags::empty(), Some(device));
-        if r.is_err(){
-            return -1;
+        if let Ok(p) = parent{
+            mount_parent = Some(p);
         }
-        return 0;
+        else {
+            mount_parent = None;
+        }
+        let r = ext4fstype.mount(name.as_str(), mount_parent, MountFlags::empty(), Some(device));
+        if let Err(e) = r{
+            return Err(e);
+        }
+        return Ok(0);
     }
     else{
-        return -1;
+        return Err(SysError::EINVAL);
     }
 }
 
-pub fn sys_umount(special:*const u8,_flags:u32)->isize{
+pub fn sys_umount(special:*const u8,_flags:u32)->SysResult<isize>{
     let token = current_user_token();
     let path = translated_str(token, special);
     let ext4fstype = FILE_SYSTEMS.lock().find_fs(&String::from("Ext4")).unwrap();
-    if let Some(dentry) = path_to_dentry(&path){
-        if let Err(_e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
-            return -1;
-        }
-        return 0;
+    let dentry = path_to_dentry(&path)?;
+    if let Err(e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
+        return Err(e);
     }
-    return -1;
-
+    return Ok(0);
 }
 
-pub fn sys_fstat(fd:usize,kst:*mut Kstat)->isize{
+pub fn sys_fstat(fd:usize,kst:*mut Kstat)->SysResult<isize>{
     let token = current_user_token();
     let task = current_task().unwrap();
-    if let Some(file) = task.inner_exclusive_access().fd_table[fd].clone() {
-        let r = file.get_dentry().get_inode().unwrap().get_attr();
-        if r.is_err(){
-            return -1;
-        }    
-        let kst = translated_refmut(token, kst);
-        let attr = r.unwrap();
-        *kst = attr;
-        return 0;
-    }
-    return -1;
+    let inner = task.inner_exclusive_access();
+    let file = inner.fd_table.get(fd)?; 
+    let file = file.file();
+    let attr = file.get_attr()?;
+    let kst = translated_refmut(token, kst);
+    *kst = attr;
+    return Ok(0);
 }
 
-pub fn sys_fstatat(dirfd:usize,path:*const u8,kst:*mut Kstat,_flags:i32)->isize{
-    if dirfd == 0 || dirfd == 1{
-     //   if path.is_null() && (_flags & 0x1000) != 0{
-            let token = current_user_token();
-            *translated_refmut(token, kst) = vfs_defs::Kstat{
-                st_dev: 0,
-                st_ino: 0,
-                st_mode: 0x81B6,
-                st_nlink: 0,
-                st_uid: 0,
-                st_gid: 0,
-                st_rdev: 0,
-                __pad: 0,
-                st_size: 0,
-                st_blksize: 0,
-                __pad2: 0,
-                st_blocks: 0,
-                st_atime_sec: 0,
-                st_atime_nsec: 0,
-                st_mtime_sec: 0,
-                st_mtime_nsec: 0,
-                st_ctime_sec: 0,
-                st_ctime_nsec: 0,
-                unused: 0,
-            };
-            return 0;
-      //  }
-    }
-    let path = parse_fd_path(dirfd as isize, path);
-    if path.is_none(){
-        return -1;
-    }
-    let path = path.unwrap();
-    if let Some(old) = path_to_dentry(&path){
-        let r = old.get_inode().unwrap().get_attr();
-        if r.is_err(){
-            return -1;
-        }
-        let token = current_user_token();
-        let kst = translated_refmut(token, kst);
-        let attr = r.unwrap();
-        *kst = attr;
-        return 0;
-    }
-    else {
-        -1
-    }
+pub fn sys_fstatat(dirfd:usize,path:*const u8,kst:*mut Kstat,_flags:i32)->SysResult<isize>{
+    let path = parse_fd_path(dirfd as isize, path)?;
+    let old = path_to_dentry(&path)?;
+    let attr = old.get_inode().unwrap().get_attr()?;
+    let token = current_user_token();
+    let kst = translated_refmut(token, kst);
+    *kst = attr;
+    return Ok(0);
 }
 
 /*
@@ -397,9 +263,9 @@ pub fn sys_mmap(
     _flags: i32,
     fd: usize,
     off: i32,
-) -> isize {
+) -> SysResult<isize> {
     if len==0 || off!=0 {
-        return -1;
+        return Err(SysError::EINVAL);
     }
     // 长度对齐
     let mut num = len / PAGE_SIZE;//num:页数量
@@ -412,20 +278,16 @@ pub fn sys_mmap(
 
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
+
+    let file = inner.fd_table.get(fd)?;
+    let file = file.file();
+    if !file.readable() {
+        return Err(SysError::EACCES);
     }
-    if let Some(file) = &inner.fd_table[fd] {
-        let file = file.clone();
-        if !file.readable() {
-            return -1;
-        }
         // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        file.read_at(0, &mut buf);
-    } else {
-        return -1;
-    }
+    drop(inner);
+    file.read_at(0, &mut buf);
+
     
     let mut inner = task.inner_exclusive_access();
     let mut start = inner.mapareacontrol.find_block(num);// num是需要的页数目 
@@ -436,7 +298,7 @@ pub fn sys_mmap(
     }
     if len + start >= USER_STACK_TOP {
         // 与栈重叠
-        return -1;
+        return Err(SysError::ENOMEM);
     }
     let start_va = VirtAddr::new(start);
     let end_va = VirtAddr::new(start + len);
@@ -462,58 +324,53 @@ pub fn sys_mmap(
             start_va: start
         }
     );
-    return start as isize;
+    return Ok(start as isize);
     
 }
 //void *start, size_t len
 //int ret = syscall(SYS_munmap, start, len);
-pub fn sys_munmap(start: *mut usize, _len: usize) -> isize {
+pub fn sys_munmap(start: *mut usize, _len: usize) -> SysResult<isize> {
     if start as usize/ PAGE_SIZE *PAGE_SIZE != start as usize {
         // 未对齐，地址错误
-        return -1;
+        return Err(SysError::EINVAL);
     }
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
     if inner.mapareacontrol.mmap_top <= start as usize {
         // 地址越界
-        return -2;
+        return Err(SysError::EINVAL);
     }
     // fd
     let mut len: usize = 0;
     let fd = inner.mapareacontrol.find_fd(start as usize, &mut len);
     if fd < 0 {
-        println!("fd not found!");
-        return -3;
+        return Err(SysError::ENOENT);
     }
-    if fd >= inner.fd_table.len() as isize {
-        println!("fd out of range!");
-        return -4;
-    }
+  //  if fd >= inner.fd_table.len() as isize {
+  //      println!("fd out of range!");
+  //      return -4;
+  //  }
     // read data from va
     let mut buf = vec![0u8; len];
     
-    if let Some(file) = &inner.fd_table[fd as usize] {
-        let file = file.clone();
-        if !file.writable() {
-            return -5;
-        }
-        // release current task TCB manually to avoid multi-borrow
-        drop(inner);
-        file.write_at(0, &mut buf);
-    } else {
-        return -6;
+    let file = inner.fd_table.get(fd as usize)?;
+    let file = file.file();
+    if !file.writable() {
+        return Err(SysError::EACCES);
     }
+    // release current task TCB manually to avoid multi-borrow
+    drop(inner);
+    file.write_at(0, &mut buf);
     let mut inner = task.inner_exclusive_access();
     let res = inner.memory_set.remove_map_area_by_vpn_start(VirtAddr::new(start as usize).into());
     if res < 0 {
         // 找不到地址
-        println!("vpn not found!");
-        return -7;
+        return Err(SysError::EFAULT);
     }
-    0
+    Ok(0)
 
 }
-pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->isize{
+pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
     #[derive(Debug, Clone, Copy)]
     #[repr(C)]
     struct SyscallDirent {
@@ -524,179 +381,135 @@ pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->isize{
     }
     let token = current_user_token();
     let task = current_task().unwrap();
-    if let Some(file) = task.inner_exclusive_access().fd_table[fd].clone() {
-        let mut write_size = 0;
-        let buf = translated_byte_buffer(token, buf, len);
-        let mut buf_slice = buf;
-        let mut offset = file.get_offset();
-        for dentry in file.get_dentry().get_inner().children.lock().values().skip(*offset){
-            if dentry.has_no_inode(){
-                *offset+=1;
-                continue;
-            }
-            let name_size = dentry.get_name_str().len() + 1;
-            let d_reclen = ((19 + name_size + 7)  & !0x7) as u16;
-            let d_off = *offset as u64;
-            let inode = dentry.get_inode().unwrap();
-            let d_ino = inode.get_meta().ino as u64;
-            let mut d_type:u8 = 0;
-            if inode.is_dir(){
-                d_type = 4;
-            }
-            else if inode.is_file(){
-                d_type = 8;
-            }
-            let syscall_dirent = SyscallDirent{
-                d_ino,
-                d_off,
-                d_reclen,
-                d_type,
-            };
-            if write_size + d_reclen > len as u16{
-                break;
-            }
-            *offset +=1;
-            let ptr = buf_slice.as_mut_ptr() as *mut SyscallDirent;
-            *translated_refmut(token, ptr) = syscall_dirent;
-            buf_slice[19..19 + name_size - 1].copy_from_slice(dentry.get_name_str().as_bytes());
-            buf_slice[19 + name_size - 1] = b'\0';
-            buf_slice = &mut buf_slice[d_reclen as usize..];
-            write_size += d_reclen;
+    let inner = task.inner_exclusive_access();
+    let file = inner.fd_table.get(fd)?;
+    let file = file.file();
+    let _ = file.load_dir()?;
+    let mut write_size = 0;
+    let buf = translated_byte_buffer(token, buf, len);
+    let mut buf_slice = buf;
+    let mut offset = file.get_offset();
+    for dentry in file.get_dentry().get_inner().children.lock().values().skip(*offset){
+        if dentry.has_no_inode(){
+            *offset+=1;
+            continue;
         }
-        return write_size as isize;
-        
+        let name_size = dentry.get_name_str().len() + 1;
+        let d_reclen = ((19 + name_size + 7)  & !0x7) as u16;
+        let d_off = *offset as u64;
+        let inode = dentry.get_inode().unwrap();
+        let d_ino = inode.get_meta().ino as u64;
+        let mut d_type:u8 = 0;
+        if inode.is_dir(){
+            d_type = 4;
+        }
+        else if inode.is_file(){
+            d_type = 8;
+        }
+        let syscall_dirent = SyscallDirent{
+            d_ino,
+            d_off,
+            d_reclen,
+            d_type,
+        };
+        if write_size + d_reclen > len as u16{
+            break;
+        }
+        *offset +=1;
+        let ptr = buf_slice.as_mut_ptr() as *mut SyscallDirent;
+        *translated_refmut(token, ptr) = syscall_dirent;
+        buf_slice[19..19 + name_size - 1].copy_from_slice(dentry.get_name_str().as_bytes());
+        buf_slice[19 + name_size - 1] = b'\0';
+        buf_slice = &mut buf_slice[d_reclen as usize..];
+        write_size += d_reclen;
     }
-    return -1;
+    return Ok(write_size as isize);
 }
 
 ///
-pub fn sys_link(old_dirfd:isize,old_path: *const u8,new_dirfd:isize,new_path:*const u8,_flags:u32) -> isize {
-    let old_path = parse_fd_path(old_dirfd, old_path);
-    if old_path.is_none(){
-        return -1;
+pub fn sys_link(old_dirfd:isize,old_path: *const u8,new_dirfd:isize,new_path:*const u8,_flags:u32) -> SysResult<isize> {
+    let old_path = parse_fd_path(old_dirfd, old_path)?;
+    let new_path = parse_fd_path(new_dirfd, new_path)?;
+    let dentry = path_to_dentry(&old_path)?;
+    if dentry.is_dir(){
+        drop(dentry);
+        return Err(SysError::EISDIR);
     }
-    let new_path = parse_fd_path(new_dirfd, new_path);
-    if new_path.is_none(){
-        return -1;
-    }
-    let old_path = old_path.unwrap();
-    let new_path = new_path.unwrap();
-    if let Some(dentry) = path_to_dentry(&old_path){
-        if dentry.is_dir(){
-            drop(dentry);
-            return -1
-        }
-        let mut name = String::new();
-        if let Some(father_dentry) = path_to_father_dentry(&new_path,&mut name){
-            let r = father_dentry.lookup(name.as_str());
-            if r.is_ok(){//EEXIST
-                return -1;
-            }
-            let new_dentry = father_dentry.find_or_create(name.as_str(), vfs_defs::DiskInodeType::File);
-            if let Err(e) = dentry.link(&new_dentry){
-                println!("link err: {:?}",e);
-                return -1;
-            }
-            return 0;
-        }
-        return -1;
-    }
-    else {
-        -1
-    }
-
-}
-
-///
-pub fn sys_unlink(dirfd:isize,path: *const u8,_flags:u32) -> isize {
-    let path = parse_fd_path(dirfd, path);
-    if path.is_none(){
-        return -1;
-    }
-    let path = path.unwrap();
     let mut name = String::new();
-    if let Some(father) = path_to_father_dentry(&path,&mut name){
-        if name.eq(".") || name.eq(".."){
-            return -1
-        }
-        if let Some(old) = path_to_dentry(&path){
-            if father.unlink(&old).is_err(){
-                return -1;
-            }
-            return 0;
-        }
-        return -1;
+    let father_dentry = path_to_father_dentry(&new_path,&mut name)?;
+    let r = father_dentry.lookup(name.as_str());
+    if r.is_ok(){//EEXIST
+        return Err(SysError::EEXIST);
     }
-    else {
-        -1
-    }
-
+    let new_dentry = father_dentry.find_or_create(name.as_str(), vfs_defs::DiskInodeType::File);
+    let _ = dentry.link(&new_dentry)?;
+    return Ok(0);
 }
 
-fn parse_fd_path(fd: isize,path:*const u8)->Option<String>{
-    if fd == 0 || fd == 1{
-        return None;
+///
+pub fn sys_unlink(dirfd:isize,path: *const u8,_flags:u32) -> SysResult<isize> {
+    let path = parse_fd_path(dirfd, path)?;
+    let mut name = String::new();
+    let father = path_to_father_dentry(&path,&mut name)?;
+    if name.eq(".") || name.eq(".."){
+        return Err(SysError::EINVAL);
     }
+    let old = path_to_dentry(&path)?;
+    father.unlink(&old)?;
+    return Ok(0);
+}
+
+fn parse_fd_path(fd: isize,path:*const u8)->SysResult<String>{
+   // if fd == 0 || fd == 1{
+  //      return None;
+  //  }
     let token = current_user_token();
     let path = translated_str(token, path);
     if path.chars().next() == Some('/') || fd == AT_FDCWD{
-        return Some(path);
+        return Ok(path);
     }
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    if let Some(file) = &inner.fd_table[fd as usize]{
-        let father_path = file.get_dentry().path();
-        let child_path = father_path+&path;
-        drop(inner);
-        return Some(child_path);
-    }
-    else{
-        drop(inner);
-        return None;
-    }
+    let file = inner.fd_table.get(fd as usize)?;
+    let file = file.file();
+    let father_path = file.get_dentry().path();
+    let child_path = father_path+&path;
+    drop(inner);
+    return Ok(child_path);
 }
 
-pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->isize{
+pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    
-    if fd < 0 {
-        return -3;
-    }
-    if fd >= inner.fd_table.len() as isize {
-        return -4;
-    }
-    if let Some(file) = &inner.fd_table[fd as usize]{
-        let mut offset = file.get_offset();
-        let mut total_write_size = 0;
-        let iov_iter = iov;
-        for _i in 0..iovcnt{
-            let iovs = translated_ref(token, iov_iter);
-            if iovs.len == 0{
-                unsafe {
-                    let _ = iov_iter.add(1);
-                }
-                continue;
-            }
-            let ptr = iovs.base;
-            let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
-            let write_size = file.write_at(*offset, buf);
-            total_write_size += write_size;
-            *offset += write_size;
+    let file = inner.fd_table.get(fd as usize)?;
+    let file = file.file();
+    let mut offset = file.get_offset();
+    let mut total_write_size = 0;
+    let iov_iter = iov;
+    for _i in 0..iovcnt{
+        let iovs = translated_ref(token, iov_iter);
+        if iovs.len == 0{
             unsafe {
                 let _ = iov_iter.add(1);
             }
+            continue;
         }
-        drop(offset);
-        file.seek(total_write_size as i64, vfs_defs::SeekFlags::SEEK_CUR);
-        return total_write_size as isize;
-    }else {
-        return -1;
+        let ptr = iovs.base;
+        let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
+        let write_size = file.write_at(*offset, buf);
+        total_write_size += write_size;
+        *offset += write_size;
+        unsafe {
+            let _ = iov_iter.add(1);
+        }
     }
+    drop(offset);
+    file.seek(total_write_size as i64, vfs_defs::SeekFlags::SEEK_CUR)?;
+    return Ok(total_write_size as isize);
 }
 
-pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->isize{
+pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->SysResult<isize>{
     let token = current_user_token();
     let buf = translated_refmut(token, buf);
     *buf =  StatFs {
@@ -713,52 +526,164 @@ pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->isize{
         f_flags: 1 << 1 as i64,
         f_spare: [0; 4],
     };
-    0
+    Ok(0)
 }
 
-pub fn sys_faccessat(dirfd:isize,path:*const u8,_mode:usize,flags:i32)->isize{
-    let path = parse_fd_path(dirfd, path);
-    if path.is_none(){
-        return -1;
-    }
-    let path = path.unwrap();
+pub fn sys_faccessat(dirfd:isize,path:*const u8,_mode:usize,flags:i32)->SysResult<isize>{
+    let path = parse_fd_path(dirfd, path)?;
     if flags == 0x100 as i32 {//no symlink now
-        return -1;
+        return Err(SysError::EINVAL);
     }
-    if let Some(_file) = open_file(path.as_str(), OpenFlags::empty()){
-        return 0;
-    }
-    return -1;
+    let _file = open_file(path.as_str(), OpenFlags::empty())?;
+    return Ok(0);
 }
 
-pub fn sys_lseek(fd:isize,offset:isize,whence:usize)->isize{
+pub fn sys_lseek(fd:isize,offset:isize,whence:usize)->SysResult<isize>{
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    if fd < 0 {
-        return -1;
+    let _file = inner.fd_table.get(fd as usize)?;
+    let _file = _file.file();
+    match whence{
+        0=>{
+            return _file.seek(offset as i64, SeekFlags::SEEK_SET);
+        },
+        1=>{
+            return _file.seek(offset as i64, SeekFlags::SEEK_CUR);
+        },
+        2=>{
+            return _file.seek(offset as i64, SeekFlags::SEEK_END);
+        },
+        _=>{}
     }
-    if fd >= inner.fd_table.len() as isize {
-        return -1;
-    }
-    if let Some(_file) = &inner.fd_table[fd as usize]{
-        match whence{
-            0=>{
-                return _file.seek(offset as i64, SeekFlags::SEEK_SET);
-            },
-            1=>{
-                return _file.seek(offset as i64, SeekFlags::SEEK_CUR);
-            },
-            2=>{
-                return _file.seek(offset as i64, SeekFlags::SEEK_END);
-            },
-            _=>{
+    return Err(SysError::EINVAL);
+}
 
+pub fn sys_utimensat(dirfd:isize,path:*const u8,times:*const crate::task::TimeSpec,flags:i32)->SysResult<isize>{
+    let inode;
+    if path.is_null(){
+        match  dirfd {
+            AT_FDCWD=>{
+                return Err(SysError::EINVAL);
+            }
+            _=>{
+                let task = current_task().unwrap();
+                let inner = task.inner_exclusive_access();
+                inode = inner.fd_table.get_file(dirfd as usize)?.get_dentry().get_inode()?;
             }
         }
     }
-    return -1;
+    else{
+        let path = parse_fd_path(dirfd, path)?;
+        let flags = OpenFlags::from_bits(flags as u32);
+        if flags.is_none(){
+            return Err(SysError::EINVAL);
+        }
+        inode = open_file(path.as_str(), flags.unwrap())?.get_dentry().get_inode()?
+    }
+    let current = Time::now();
+    let mut inner = inode.get_meta().inner.lock();
+    let timespec_now = TimeSpec{
+        sec:current.to_sec(),
+        usec:current.to_usec()
+    };
+    if times.is_null(){
+        inner.atime = timespec_now;
+        inner.mtime = timespec_now;
+        inner.ctime = timespec_now;
+    }
+    else{
+        const UTIME_NOW: usize = 0x3fffffff;
+        const UTIME_OMIT: usize = 0x3ffffffe;
+        let token = current_user_token();
+        let times1 = translated_ref(token, times);
+        let times2;
+        unsafe {
+            times2 = translated_ref(token, times.add(1));
+        }
+        match times1.usec{
+            UTIME_NOW=>{
+                inner.atime = timespec_now;
+            }
+            UTIME_OMIT=>{}
+            _=>{
+                inner.atime = *times1;
+            }
+        }
+        match times2.usec{
+            UTIME_NOW=>{
+                inner.mtime = timespec_now;
+            }
+            UTIME_OMIT=>{}
+            _=>{
+                inner.mtime = *times2;
+            }
+        }
+        inner.ctime = timespec_now;
+    }
+    Ok(0)
+}
+const F_DUPFD:isize = 0;
+const F_DUPFD_CLOEXEC:isize = 1030;
+const F_GETFD:isize = 1;
+const F_SETFD:isize = 2;
+const F_GETFL:isize = 3;
+const F_SETFL:isize = 4;
+//F_UNIMPL,
+pub fn sys_fcntl(fd:isize,op:isize,arg:usize)->SysResult<isize>{
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    match op{
+        F_DUPFD=>{
+            inner.fd_table.dup_with_arg(fd as usize, arg,OpenFlags::empty())
+        }
+        F_DUPFD_CLOEXEC=>{
+            inner.fd_table.dup_with_arg(fd as usize, arg,OpenFlags::CLOEXEC)
+        }
+        F_GETFD=>{
+            let fd = inner.fd_table.get(fd as usize)?;
+            return Ok(fd.get_flags().bits() as isize);
+        }
+        F_SETFD=>{
+            let fd = inner.fd_table.get_mut(fd as usize)?;
+            fd.set_flags(FdFlags::from(OpenFlags::from_bits_retain(arg as u32)));
+            return Ok(0);
+        }
+        F_GETFL=>{
+            let file = inner.fd_table.get(fd as usize)?;
+            let file = file.file();
+            let flag = file.get_inner().flags.lock();
+            return Ok(flag.bits() as isize);
+        }
+        F_SETFL=>{
+            let file = inner.fd_table.get(fd as usize)?;
+            let file = file.file();
+            *file.get_inner().flags.lock() = OpenFlags::from_bits_retain(arg as u32);
+            return Ok(0);
+        }
+        _ =>{
+            return Ok(0);
+        }
+    }
 }
 
-pub fn sys_utimensat(_dirfd:isize,_path:*const u8,_times:*const crate::task::TimeSpec,_flags:i32)->isize{//not implemented
-    0
+pub fn sys_sendfile(outfd:isize,infd:isize,offset:*mut usize,count:usize)->SysResult<isize>{
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let (outfile,infile) = (inner.fd_table.get_file(outfd as usize)?,inner.fd_table.get_file(infd as usize)?);
+    if !infile.readable() || !outfile.writable() {
+        return Err(SysError::EBADF);
+    }
+    let mut buf = vec![0 as u8; count];
+    let len;
+    if offset.is_null(){
+        len = infile.read(&mut buf);
+    }
+    else{
+        let offset = translated_refmut(token, offset);
+        len = infile.read_at(*offset, &mut buf);
+        *offset = *offset + len;
+    }
+    let ret = outfile.write(&buf[..len]);
+    return Ok(ret as isize);
 }

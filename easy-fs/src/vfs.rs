@@ -129,7 +129,7 @@ impl EfsInode {
         self.meta.superblock.upgrade().unwrap().downcast_arc::<EfsSuperBlock>().map_err(|_| SysError::ENOTDIR).unwrap()
     }
     fn get_dev(&self)->Arc<dyn BlockDevice>{
-        self.meta.superblock.upgrade().unwrap().get_inner().dev.clone()
+        self.meta.superblock.upgrade().unwrap().get_inner().dev.as_ref().cloned().unwrap()
     }
     /// get locked &mut inner
     pub fn lock_inner(&self) -> (MutexGuard<InodeInner>,MutexGuard<InodeMetaInner> ){

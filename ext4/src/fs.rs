@@ -27,7 +27,7 @@ impl FileSystemType for Ext4ImplFsType{
             parent:Option<Arc<dyn Dentry>>,
             _flags: vfs_defs::MountFlags,
             device:Option<Arc<dyn BlockDevice>>)->SysResult<Arc<dyn Dentry>> {
-        let inner = SuperBlockInner::new(device.unwrap(), self.clone());
+        let inner = SuperBlockInner::new(device, self.clone());
         let superblock = Arc::new(Ext4Superblock::new(inner));
         let root_ino= 2;
         let root_inode = Arc::new(Ext4Inode::new(InodeMeta::new(root_ino, superblock.clone())));

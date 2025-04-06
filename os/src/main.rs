@@ -38,7 +38,7 @@ mod board;
 mod console;
 //#[macro_use]
 //mod logging;
-mod config;
+//mod config;
 mod drivers;
 pub mod fs;
 pub mod lang_items;

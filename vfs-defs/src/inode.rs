@@ -2,6 +2,7 @@ use spin::{Mutex, MutexGuard};
 use alloc::sync::{Weak,Arc};
 use downcast_rs::{impl_downcast, DowncastSync};
 use system_result::SysResult;
+use time::*;
 use crate::Kstat;
 
 use super::SuperBlock;
@@ -45,7 +46,13 @@ pub struct InodeMetaInner {
     /// 
     pub size: u32,
     ///
-    pub link: u32,    
+    pub link: u32,   
+    /// Last access time.
+    pub atime: TimeSpec,
+    /// Last modification time.
+    pub mtime: TimeSpec,
+    /// Last status change time.
+    pub ctime: TimeSpec, 
 
 }
 impl InodeMetaInner{
@@ -54,6 +61,9 @@ impl InodeMetaInner{
         Self{
             size:0,
             link:0,
+            atime:TimeSpec::default(),
+            mtime:TimeSpec::default(),
+            ctime:TimeSpec::default()
         }
     }
 }
