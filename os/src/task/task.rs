@@ -1,9 +1,7 @@
 //!Implementation of [`TaskControlBlock`]
-use super::current_task;
-use super::{pid_alloc, PidHandle};
-use super::{tid_alloc, TidAddress, TidHandle};
+use super::{pid_alloc, PidHandle,tid_alloc, TidAddress, TidHandle,current_task,Tms,TimeSpec,FdTable};
 use super::aux::*;
-use crate::config::{KERNEL_STACK_SIZE, USER_MMAP_TOP, USER_STACK_SIZE,RLimit,MAX_FD};
+use config::{KERNEL_STACK_SIZE, USER_MMAP_TOP, USER_STACK_SIZE,RLimit,MAX_FD};
 use crate::fs::{Stdin, Stdout};
 use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
@@ -21,158 +19,15 @@ use alloc::string::String;
 use core::cell::RefMut;
 use vfs_defs::{Dentry,File};
 use vfs::get_root_dentry;
+use system_result::{SysResult,SysError};
 use core::mem::size_of;
 use crate::task::SignalFlags;
-use arch::time::Time;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 const _F_SIZE: usize = 20 - 2 * size_of::<u64>() - size_of::<u32>();
-#[derive(Clone, Copy)]
-#[repr(C)]
-/// System information structure.
-pub struct SysInfo {
-    /// Seconds since boot.
-    pub uptime: i64,
-    /// 1, 5, and 15 minute load averages.
-    pub loads: [u64; 3],
-    /// Total usable main memory size.
-    pub totalram: u64,
-    /// Available memory size.
-    pub freeram: u64,
-    /// Amount of shared memory.
-    pub sharedram: u64,
-    /// Memory used by buffers.
-    pub bufferram: u64,
-    /// Total swap space size.
-    pub totalswap: u64,
-    /// Swap space still available.
-    pub freeswap: u64,
-    /// Number of current processes.
-    pub procs: u16,
-    /// Explicit padding for m68k.
-    pub pad: u16,
-    /// Total high memory size.
-    pub totalhigh: u64,
-    /// Available high memory size.
-    pub freehigh: u64,
-    /// Memory unit size in bytes.
-    pub mem_uint: u32,
-    /// Pads structure to 64 bytes.
-    pub _f: [u8; 12], // 假设 _F_SIZE 是 12，使得结构体总大小为 64 字节, o错误？？
-}
 
-impl Default for SysInfo {
-    fn default() -> Self {
-        SysInfo {
-            uptime: 0,
-            loads: [0; 3],
-            totalram: 0,
-            freeram: 0,
-            sharedram: 0,
-            bufferram: 0,
-            totalswap: 0,
-            freeswap: 0,
-            procs: 0,
-            pad: 0,
-            totalhigh: 0,
-            freehigh: 0,
-            mem_uint: 0,
-            _f: [0; 12],
-        }
-    }
-}
-
-///
-#[repr(C)]
-pub struct Utsname {
-    ///
-    pub sysname: [u8; 65],
-    ///
-    pub nodename: [u8; 65],
-    ///
-    pub release: [u8; 65],
-    ///
-    pub version: [u8; 65],
-    ///
-    pub machine: [u8; 65],
-    ///
-    pub domainname: [u8; 65],
-}
-impl Default for Utsname {
-    fn default() -> Self {
-        Utsname {
-            sysname: string_to_array("Linux"),
-            nodename: string_to_array("Linux"),
-            release: string_to_array("5.19.0-42-generic"),
-            version: string_to_array("#43~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Fri Apr 21 16:51:08 UTC 2"),
-            machine: string_to_array("risc-v"),
-            domainname: string_to_array("user"),
-        }
-    }
-}
-impl Utsname {
-    /// Copy the contents of another Utsname instance into this instance
-    pub fn copy_from(&mut self, other: &Utsname) {
-        self.sysname.copy_from_slice(&other.sysname);
-        self.nodename.copy_from_slice(&other.nodename);
-        self.release.copy_from_slice(&other.release);
-        self.version.copy_from_slice(&other.version);
-        self.machine.copy_from_slice(&other.machine);
-        self.domainname.copy_from_slice(&other.domainname);
-    }
-}
-// Helper function to convert a string to a fixed-size array of u8
-fn string_to_array(s: &str) -> [u8; 65] {
-    let mut array = [0u8; 65];
-    let bytes = s.as_bytes();
-    let len = bytes.len().min(64); // Ensure we don't overflow the array
-    array[..len].copy_from_slice(&bytes[..len]);
-    array
-}
-#[derive(Debug, Clone, Copy, Default)]
-#[repr(C)]
-/// Describes times in seconds and microseconds.
-pub struct TimeSpec {
-    /// second
-    pub sec: usize,
-    /// microsecond
-    pub usec: usize,
-}
-
-#[repr(C)]
-///
-pub struct Tms { //记录起始时间
-    /// 用户时间
-    pub tms_utime: usize,
-    /// 系统时间
-    pub tms_stime: usize,
-    /// 子进程用户时间
-    pub tms_cutime: usize, 
-    /// 子进程系统时间
-    pub tms_cstime: usize, 
-}
-impl Tms {
-    ///
-    pub fn new() -> Self {
-        Self {
-            tms_utime: 0,
-            tms_stime: 0,
-            tms_cutime: Time::now().to_msec() as usize,
-            tms_cstime: Time::now().to_msec() as usize,
-        }
-    }
-    ///
-    pub fn from_other_task(o_tms: &Tms) -> Self {
-        Self {
-            tms_utime: o_tms.tms_utime,
-            tms_stime: o_tms.tms_stime,
-            tms_cutime: Time::now().to_msec() as usize,
-            tms_cstime: Time::now().to_msec() as usize,
-        }
-    }
-}
 pub struct KernelStack {
 //    inner: Arc<[u128; KERNEL_STACK_SIZE / size_of::<u128>()]>,
     inner: Arc<Vec<u128>>,
@@ -264,8 +119,8 @@ pub struct TaskControlBlockInner {
     pub parent: Option<Weak<TaskControlBlock>>,
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
     pub exit_code: i32,
-    pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
-    pub fd_table_rlimit:RLimit,
+    pub fd_table: FdTable,//Vec<Option<Arc<dyn File + Send + Sync>>>,
+   // pub fd_table_rlimit:RLimit,
     pub signals: SignalFlags, // 新增：未处理的信号
     pub killed: bool,         // 新增：是否被信号终止
     pub cwd:Arc<dyn Dentry>,//工作目录
@@ -314,20 +169,6 @@ impl TaskControlBlockInner {
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
-    pub fn alloc_fd(&mut self) -> usize {
-        if let Some(fd) = (0..self.fd_table.len()).find(|fd| self.fd_table[*fd].is_none()) {
-            fd
-        } else {
-            self.fd_table.push(None);
-            self.fd_table.len() - 1
-        }
-    }
-    pub fn set_fd_rlimit(&mut self,limit:RLimit){
-        self.fd_table_rlimit = limit;
-        if limit.rlimit_max <= self.fd_table.len(){
-            self.fd_table.truncate(limit.rlimit_max);
-        }
-    }
 }
 
 impl TaskControlBlock {
@@ -355,15 +196,7 @@ impl TaskControlBlock {
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
-                    fd_table: vec![
-                        // 0 -> stdin
-                        Some(Arc::new(Stdin)),
-                        // 1 -> stdout
-                        Some(Arc::new(Stdout)),
-                        // 2 -> stderr
-                        Some(Arc::new(Stdout)),
-                    ],
-                    fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
+                    fd_table: FdTable::new(),
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals
@@ -497,7 +330,6 @@ impl TaskControlBlock {
         self.push_into_user_stack(token,&mut user_sp,data);
         // make the user_sp aligned to 8B for k210 platform
         user_sp -= user_sp % core::mem::size_of::<usize>();
-        
 
         memory_set.activate();
         // **** access current TCB exclusively
@@ -528,14 +360,7 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kstack = KernelStack::new();
         // copy fd table
-        let mut new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
-        for fd in parent_inner.fd_table.iter() {
-            if let Some(file) = fd {
-                new_fd_table.push(Some(file.clone()));
-            } else {
-                new_fd_table.push(None);
-            }
-        }
+        let new_fd_table = FdTable::from_existed_table(&parent_inner.fd_table);
         log::debug!("fork curproc={} new proc={}",self.getpid(),pid_handle.0);
         let task_control_block = Arc::new(TaskControlBlock {
             pid: pid_handle,
@@ -550,7 +375,6 @@ impl TaskControlBlock {
                     children: Vec::new(),
                     exit_code: 0,
                     fd_table: new_fd_table,
-                    fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals

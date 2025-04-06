@@ -1,10 +1,12 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize,Ordering};
 use spin::{Mutex, MutexGuard};
-use super::{Dentry,Inode};
+use super::{Dentry,Inode,DentryState};
 use bitflags::*;
 use alloc::vec::Vec;
-
+use system_result::{SysResult,SysError};
+use crate::Kstat;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 
 bitflags! {
     #[derive(PartialEq)]
@@ -26,14 +28,38 @@ bitflags! {
         const RDONLY = 0;
         ///Write only
         const WRONLY = 1 << 0;
+        ///
+        const ACCMODE = 3;
         ///Read & Write
         const RDWR = 1 << 1;
         ///Allow create
-        const CREATE = 1 << 6;
+        const CREATE = 0o0100;
         ///Clear file and return an empty one
-        const TRUNC = 1 << 10;
+        const TRUNC = 0o01000;
         ///
-        const DIRECTORY = 1 << 16;
+        const APPEND = 0o02000;
+        ///
+        const NONBLOCK = 0o04000;
+        ///
+        const SYNC = 0o4010000;
+        ///
+        const ASYNC = 0o020000;
+        ///
+        const LARGEFILE = 0o0100000;
+        ///
+        const DIRECTORY = 0o0200000;
+        ///
+        const NOFOLLOW = 0o0400000;
+        ///
+        const CLOEXEC = 0o2000000;
+        ///
+        const DIRECT = 0o040000;
+        ///
+        const NOATIME = 0o1000000;
+        ///
+        const PATH = 0o10000000;
+        ///
+        const DSYNC = 0o010000;
     }
 }
 impl OpenFlags {
@@ -127,13 +153,13 @@ pub trait File: Send + Sync{
         v
     }
     ///
-    fn seek(&self,pos:i64,flags:SeekFlags)->isize{
+    fn seek(&self,pos:i64,flags:SeekFlags)->SysResult<isize>{
         let mut cur_pos = self.get_offset();
         match flags {
             SeekFlags::SEEK_CUR=>{
                 if pos < 0{
                     if *cur_pos as i64 - pos.abs() < 0 {
-                        return -1;
+                        return Err(SysError::EINVAL);
                     }
                     *cur_pos -= pos.abs() as usize;
                 } else {
@@ -152,11 +178,20 @@ pub trait File: Send + Sync{
                 }
             }
             _ =>{
-                return -1;
+                return Err(SysError::EOPNOTSUPP);
             }
         }
-        return *cur_pos as isize;
+        return Ok(*cur_pos as isize);
     }
+    ///
+    fn get_attr(&self)->SysResult<Kstat>{
+        self.get_dentry().get_inode().unwrap().get_attr()
+    }
+    ///
+    fn load_dir(&self)->SysResult<()>{
+        self.get_dentry().load_dir()
+    }
+
 }
 
 impl dyn File{

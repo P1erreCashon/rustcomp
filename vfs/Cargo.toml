@@ -11,3 +11,4 @@ ext4 = { path = "../ext4" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 spin = "0.7.0"
 device = { path = "../device" }
+config = { path = "../config" }

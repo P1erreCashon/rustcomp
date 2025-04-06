@@ -33,10 +33,12 @@ impl Inode for Ext4Inode{
         }
         else{
             let attr = r.unwrap();
+            let inoderef = sb.ext4fs.get_inode_ref(self.get_meta().ino as u32);
+            let inner = self.get_meta().inner.lock();
             Ok(Kstat{
                 st_dev: 0,
                 st_ino: attr.ino,
-                st_mode: 0,
+                st_mode: inoderef.inode.mode() as u32,
                 st_nlink: attr.nlink,
                 st_uid: attr.uid,
                 st_gid: attr.gid,
@@ -46,12 +48,12 @@ impl Inode for Ext4Inode{
                 st_blksize: attr.blksize,
                 __pad2: 0,
                 st_blocks: attr.blocks,
-                st_atime_sec: attr.atime as u64,
-                st_atime_nsec: attr.atime as u64,
-                st_mtime_sec: attr.mtime as u64,
-                st_mtime_nsec: attr.mtime as u64,
-                st_ctime_sec: attr.ctime as u64,
-                st_ctime_nsec: attr.ctime as u64,
+                st_atime_sec: inner.atime.sec as u64,
+                st_atime_nsec: 1000*inner.atime.usec  as u64,
+                st_mtime_sec: inner.mtime.sec as u64,
+                st_mtime_nsec: 1000*inner.mtime.usec as u64,
+                st_ctime_sec: inner.ctime.sec as u64,
+                st_ctime_nsec: 1000*inner.ctime.usec as u64,
                 unused: 0,
             })
         }

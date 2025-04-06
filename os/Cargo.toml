@@ -22,8 +22,11 @@ volatile = "0.3"
 vfs-defs = { path = "../vfs-defs" }
 vfs = { path = "../vfs" }
 device = { path = "../device" }
+config = { path = "../config" }
+time = { path = "../time" }
+system-result = { path = "../system-result" }
 crate_interface = { git = "https://github.com/Byte-OS/crate_interface.git" }
-arch = { path = "arch", features = ["kcontext"]}
+arch = { path = "../arch", features = ["kcontext"]}
 fdt = "0.1.5"
 # user_lib = {path="../user"}
 

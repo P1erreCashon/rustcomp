@@ -41,26 +41,11 @@ impl ProcessArguments {
             .collect();
 
         // redirect input
-        let mut input = String::new();
-        if let Some((idx, _)) = args_copy
-            .iter()
-            .enumerate()
-            .find(|(_, arg)| arg.as_str() == "<\0")
-        {
-            input = args_copy[idx + 1].clone();
-            args_copy.drain(idx..=idx + 1);
-        }
+        let input = String::new();
 
         // redirect output
-        let mut output = String::new();
-        if let Some((idx, _)) = args_copy
-            .iter()
-            .enumerate()
-            .find(|(_, arg)| arg.as_str() == ">\0")
-        {
-            output = args_copy[idx + 1].clone();
-            args_copy.drain(idx..=idx + 1);
-        }
+        let output = String::new();
+
 
         let mut args_addr: Vec<*const u8> = args_copy.iter().map(|arg| arg.as_ptr()).collect();
         args_addr.push(core::ptr::null::<u8>());
@@ -111,15 +96,6 @@ pub fn main() -> i32 {
                     if !valid {
                         println!("Invalid command: Inputs/Outputs cannot be correctly binded!");
                     } else {
-                        // create pipes
-                        let mut pipes_fd: Vec<[usize; 2]> = Vec::new();
-                        if !process_arguments_list.is_empty() {
-                            for _ in 0..process_arguments_list.len() - 1 {
-                                let mut pipe_fd = [0usize; 2];
-                                pipe(&mut pipe_fd);
-                                pipes_fd.push(pipe_fd);
-                            }
-                        }
                         let mut children: Vec<_> = Vec::new();
                         for (i, process_argument) in process_arguments_list.iter().enumerate() {
                             let pid = fork();
@@ -128,50 +104,6 @@ pub fn main() -> i32 {
                                 let output = &process_argument.output;
                                 let args_copy = &process_argument.args_copy;
                                 let args_addr = &process_argument.args_addr;
-                                // redirect input
-                                if !input.is_empty() {
-                                    let input_fd = open(input.as_str(), OpenFlags::RDONLY);
-                                    if input_fd == -1 {
-                                        println!("Error when opening file {}", input);
-                                        return -4;
-                                    }
-                                    let input_fd = input_fd as usize;
-                                    close(0);
-                                    assert_eq!(dup(input_fd), 0);
-                                    close(input_fd);
-                                }
-                                // redirect output
-                                if !output.is_empty() {
-                                    let output_fd = open(
-                                        output.as_str(),
-                                        OpenFlags::CREATE | OpenFlags::WRONLY,
-                                    );
-                                    if output_fd == -1 {
-                                        println!("Error when opening file {}", output);
-                                        return -4;
-                                    }
-                                    let output_fd = output_fd as usize;
-                                    close(1);
-                                    assert_eq!(dup(output_fd), 1);
-                                    close(output_fd);
-                                }
-                                // receive input from the previous process
-                                if i > 0 {
-                                    close(0);
-                                    let read_end = pipes_fd.get(i - 1).unwrap()[0];
-                                    assert_eq!(dup(read_end), 0);
-                                }
-                                // send output to the next process
-                                if i < process_arguments_list.len() - 1 {
-                                    close(1);
-                                    let write_end = pipes_fd.get(i).unwrap()[1];
-                                    assert_eq!(dup(write_end), 1);
-                                }
-                                // close all pipe ends inherited from the parent process
-                                for pipe_fd in pipes_fd.iter() {
-                                    close(pipe_fd[0]);
-                                    close(pipe_fd[1]);
-                                }
                                 // execute new application
                                 if exec(args_copy[0].as_str(), args_addr.as_slice()) == -1 {
                                     println!("Error when executing!");
@@ -181,10 +113,6 @@ pub fn main() -> i32 {
                             } else {
                                 children.push(pid);
                             }
-                        }
-                        for pipe_fd in pipes_fd.iter() {
-                            close(pipe_fd[0]);
-                            close(pipe_fd[1]);
                         }
                         let mut exit_code: i32 = 0;
                         for pid in children.into_iter() {

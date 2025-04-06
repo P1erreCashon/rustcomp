@@ -18,6 +18,7 @@ use spin::Mutex;
 use alloc::string::String;
 use vfs::get_root_dentry;
 use vfs_defs::{Inode,DiskInodeType,File,OpenFlags,Dentry};
+use system_result::{SysResult,SysError};
 
 
 /* 
@@ -69,51 +70,45 @@ pub fn list_apps() {
    println!("**************/");
 }
 ///
-pub fn create_file(path:&str,type_:DiskInodeType)->Option<Arc<dyn Dentry>>{
-    if let Some(inode) = path_to_dentry(path){
-        return Some(inode);
+pub fn create_file(path:&str,type_:DiskInodeType)->SysResult<Arc<dyn Dentry>>{
+    if let Ok(inode) = path_to_dentry(path){
+        return Ok(inode);
     }
     let mut name = String::new();
-    if let Some(parent) = path_to_father_dentry(path,&mut name){
-        let dentry = parent.create(name.as_str(),type_).unwrap();
-        if type_ == DiskInodeType::Directory{
-            let current = dentry.find_or_create(".", DiskInodeType::Directory);
-            let _ = current.link(&dentry);
-            let to_parent = dentry.find_or_create("..", DiskInodeType::Directory);
-            _ = to_parent.link(&parent); 
+    let parent = path_to_father_dentry(path,&mut name)?;
+    let dentry = parent.create(name.as_str(),type_).unwrap();
+    if type_ == DiskInodeType::Directory{
+        let current = dentry.find_or_create(".", DiskInodeType::Directory);
+        let mut res = current.link(&dentry);
+        if let Err(e) = res{
+            return Err(e);
         }
-        return Some(dentry);
+        let to_parent = dentry.find_or_create("..", DiskInodeType::Directory);
+        res = to_parent.link(&parent); 
+        if let Err(e) = res{
+            return Err(e);
+        }
     }
-    else{
-        return None;
-    }
+    return Ok(dentry);
 }
 ///Open file with flags
-pub fn open_file(path: &str, flags: OpenFlags) -> Option<Arc<dyn File>>{//还需增加对设备文件的支持
+pub fn open_file(path: &str, flags: OpenFlags) -> SysResult<Arc<dyn File>>{//还需增加对设备文件的支持
     let ret;
     if flags.contains(OpenFlags::CREATE) {// create file
-        if let Some(dentry) = create_file(path, DiskInodeType::File){
-            dentry.get_inode().unwrap().clear();
-            ret = dentry.open(flags);
-        } else {
-            return None;
-                //.map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
-        }
+        let dentry = create_file(path, DiskInodeType::File)?;
+        dentry.get_inode().unwrap().clear();
+        ret = dentry.open(flags);
     } else {
-        if let Some(dentry) = path_to_dentry(path){
-            if dentry.is_dir() && ((flags.bits()&OpenFlags::RDONLY.bits()) != OpenFlags::RDONLY.bits()){
-                return None;
-            }
-            if flags.contains(OpenFlags::TRUNC) && dentry.is_file(){
-                dentry.get_inode().unwrap().clear();
-            }
-            ret = dentry.open(flags);
+        let dentry = path_to_dentry(path)?;
+        if dentry.is_dir() && ((flags.bits()&OpenFlags::RDONLY.bits()) != OpenFlags::RDONLY.bits()){
+            return Err(SysError::EACCES);
         }
-        else{
-            return None;
+        if flags.contains(OpenFlags::TRUNC) && dentry.is_file(){
+            dentry.get_inode().unwrap().clear();
         }
+        ret = dentry.open(flags);
     }  
-    Some(ret)
+    Ok(ret)
 }
 /*
 impl File for OSInode {
@@ -179,7 +174,7 @@ fn skipelem<'a>(path: &'a str, name: &mut String) -> Option<&'a str> {
 fn path_to_dirent_(path:&str,
                   to_father:bool,
                   name:&mut String,
-                )->Option<Arc<dyn Dentry>>{
+                )->SysResult<Arc<dyn Dentry>>{
   //  let efs =  fs.lock();
     let mut dentry ;
     let mut current = path;
@@ -205,29 +200,24 @@ fn path_to_dirent_(path:&str,
                 dentry = father;
                 continue;
             }else{
-                return None;
+                return Err(SysError::ENOENT);
             }
         }
         if to_father && current.len() == 0 {
-            return Some(dentry);
+            return Ok(dentry);
         }
-        let r = dentry.lookup(name);
-        match r {
-            Ok(new_dirent)=>dentry = new_dirent,
-            Err(_e)=>{return None;}
-        }
-        
+        dentry = dentry.lookup(name)?;
     }
-    return Some(dentry);
+    return Ok(dentry);
 
 }
 /// get inode from path,get a clone of inode's Arc
-pub fn path_to_dentry(path:&str)->Option<Arc<dyn Dentry>>{
+pub fn path_to_dentry(path:&str)->SysResult<Arc<dyn Dentry>>{
     let mut name = String::new();
     path_to_dirent_(path, false,&mut name)
 }
 /// get father inode from path ,get a clone of inode's Arc
-pub fn path_to_father_dentry(path:&str,name:&mut String)->Option<Arc<dyn Dentry>>{
+pub fn path_to_father_dentry(path:&str,name:&mut String)->SysResult<Arc<dyn Dentry>>{
     path_to_dirent_(path, true,name)
 
 }

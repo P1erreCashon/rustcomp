@@ -1,10 +1,12 @@
+#![no_std]
+#![no_main]
+
 //! Constants used in rCore
 
-use crate::task::Utsname;
 #[allow(unused)]
 pub const USER_STACK_SIZE: usize = 4096 * 5;
 pub const KERNEL_STACK_SIZE: usize = 4096 *10;
-pub const KERNEL_HEAP_SIZE: usize = 0x200_0000;
+pub const KERNEL_HEAP_SIZE: usize = 0x300_0000;
 pub const USER_STACK_TOP: usize = 0x8000_0000;
 pub const USER_MMAP_TOP: usize = 0x6000_0000;
 
@@ -14,6 +16,8 @@ pub const MAX_FD:usize = 1024;
 pub const USER_HEAP_SIZE: usize = 0x8000;
 //pub const PAGE_SIZE_BITS: usize = 0xc;
 
+
+//pub use crate::board::CLOCK_FREQ;
 
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

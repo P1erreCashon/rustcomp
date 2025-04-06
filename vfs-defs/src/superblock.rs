@@ -6,7 +6,7 @@ use spin::Once;
 ///
 pub struct SuperBlockInner{
     ///
-    pub dev:Arc<dyn BlockDevice>,
+    pub dev:Option<Arc<dyn BlockDevice>>,
     ///
     pub _type:Weak<dyn FileSystemType>,
     ///
@@ -28,7 +28,7 @@ pub trait SuperBlock : Send + Sync + DowncastSync {
 
 impl SuperBlockInner{
     ///
-    pub fn new(dev:Arc<dyn BlockDevice>,_type:Arc<dyn FileSystemType>)->Self{
+    pub fn new(dev:Option<Arc<dyn BlockDevice>>,_type:Arc<dyn FileSystemType>)->Self{
         Self{
             dev,
             _type:Arc::downgrade(&_type),

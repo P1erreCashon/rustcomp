@@ -141,6 +141,8 @@ pub trait Dentry: Send + Sync {
     } 
     ///
     fn ls(self:Arc<Self>)->Vec<String>;
+    ///
+    fn load_dir(self:Arc<Self>)->SysResult<()>;
     
 }
 

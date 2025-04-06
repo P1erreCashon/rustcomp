@@ -80,7 +80,7 @@ pub struct EfsSuperBlock{
 impl EfsSuperBlock{
     ///
     pub fn new(inner:SuperBlockInner)->Self{
-        let fs = EasyFileSystem::open(inner.dev.clone());
+        let fs = EasyFileSystem::open(inner.dev.as_ref().cloned().unwrap());
         Self{
             inner,
             fs,

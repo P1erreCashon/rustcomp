@@ -10,7 +10,8 @@ pub struct Ext4Superblock{
 
 impl Ext4Superblock{
     pub fn new(inner:SuperBlockInner)->Self{
-        let ext4fs = Ext4::open(Arc::new(Ext4Disk::new(inner.dev.clone())));
+        let dev = inner.dev.as_ref().cloned().unwrap();
+        let ext4fs = Ext4::open(Arc::new(Ext4Disk::new(dev)));
         Self { inner, ext4fs }
     }
 

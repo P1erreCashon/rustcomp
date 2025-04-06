@@ -1,4 +1,4 @@
-use vfs_defs::{Dentry, DentryInner, DiskInodeType, File, FileInner, Inode, InodeMeta,OpenFlags};
+use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::{String,ToString};
@@ -65,6 +65,46 @@ impl Dentry for Ext4Dentry{
                 _ => Err(SysError::EINVAL),
             }
         } 
+        Ok(())
+    }
+    fn load_dir(self:Arc<Self>)->SysResult<()> {
+        let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
+        for (name,child) in self.get_inner().children.lock().iter(){
+            if name == "." || name == ".."{
+                continue;
+            }
+            let mut state = child.get_state();
+            if *state == DentryState::Invalid {
+                let path = child.path();
+                let r;
+                r = sblock.ext4fs.ext4_dir_open(path.as_str());
+                if let Err(e) = r {
+                    return match e.error() {
+                        Errno::ENOENT => Err(SysError::ENOENT),
+                        Errno::EINVAL => Err(SysError::EINVAL),
+                        _ => Err(SysError::EINVAL),
+                    }
+                }            
+                let inode_ref = sblock.ext4fs.get_inode_ref(r.unwrap());
+                if inode_ref.inode.is_file(){             
+                    let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock.clone())));
+                    child_inode.set_type(DiskInodeType::File);
+                    child.set_inode(child_inode);
+                } 
+                else{
+                    let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock.clone())));
+                    child_inode.set_type(DiskInodeType::Directory);
+                    child.set_inode(child_inode);            
+                    let sub_child_dir_names = child.clone().ls();
+                    for  sub_child_dir_name in sub_child_dir_names{
+                        let sub_child_dir = child.clone().concrete_new_child(sub_child_dir_name.as_str());
+                        child.add_child(sub_child_dir);
+                    }
+                }
+                *state = DentryState::Valid;
+                drop(state);
+            }
+        }
         Ok(())
     }
     fn concrete_lookup(self: Arc<Self>, name: &str) -> SysResult<Arc<dyn Dentry>> {
