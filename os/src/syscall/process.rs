@@ -4,7 +4,9 @@ use core::ops::Add;
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
 use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
-    self, UNAME,add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task
+    self, UNAME,add_task, current_task, current_user_token, 
+    exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task,
+    MAX_SIG,SigAction
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -535,13 +537,132 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> 
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
-        if let Some(flag) = SignalFlags::from_bits(signal) {
-            process.inner_exclusive_access().signals |= flag;
+        if let Some(flag) = SignalFlags::from_bits(1 << signal) {
+            println!("[kernel] sys_kill: Adding signal {} to pid {}", signal, pid);
+            let mut inner = process.inner_exclusive_access();
+            inner.signals |= flag;
+            drop(inner);
             Ok(0)
         } else {
+            println!("[kernel] sys_kill: Invalid signal {}", signal);
             Err(SysError::EINVAL)
         }
     } else {
+        println!("[kernel] sys_kill: Process {} not found", pid);
         Err(SysError::ESRCH)
+    }
+}
+
+fn check_sigaction_error(signal: SignalFlags, action: usize, old_action: usize) -> bool {
+    if action == 0
+        || old_action == 0
+        || signal == SignalFlags::SIGKILL
+        || signal == SignalFlags::SIGSTOP
+    {
+        true
+    } else {
+        false
+    }
+}
+
+pub fn sys_sigaction(
+    signum: i32,
+    action: *const SigAction,
+    old_action: *mut SigAction,
+) -> isize {
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+
+    // 检查信号编号是否合法
+    if signum as usize > MAX_SIG {
+        println!("[kernel] sys_sigaction: Invalid signal number: {}", signum);
+        return -1;
+    }
+
+    // 将 signum 转换为 SignalFlags
+    if let Some(flag) = SignalFlags::from_bits(1 << signum) {
+        // 检查参数是否合法
+        if check_sigaction_error(flag, action as usize, old_action as usize) {
+            println!(
+                "[kernel] sys_sigaction: Invalid parameters for signal: {:?}", flag
+            );
+            return -1;
+        }
+
+        // 保存旧的信号处理函数
+        let prev_action = inner.signal_actions.table[signum as usize];
+        if !old_action.is_null() {
+            *translated_refmut(token, old_action) = prev_action;
+        }
+
+        // 设置新的信号处理函数
+        if !action.is_null() {
+            inner.signal_actions.table[signum as usize] = *translated_ref(token, action);
+        }
+
+        println!(
+            "[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",
+            signum, inner.signal_actions.table[signum as usize].handler
+        );
+        0
+    } else {
+        println!("[kernel] sys_sigaction: Signal not supported: {}", signum);
+        -1
+    }
+}
+
+// 定义 how 参数的可能值（参考 POSIX）
+const SIG_BLOCK: i32 = 0;   // 将 set 中的信号添加到掩码
+const SIG_UNBLOCK: i32 = 1; // 从掩码中移除 set 中的信号
+const SIG_SETMASK: i32 = 2; // 将掩码设置为 set
+
+pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFlags) -> isize {
+    let token = current_user_token();
+    if let Some(task) = current_task() {
+        let mut inner = task.inner_exclusive_access();
+        let old_mask = inner.signal_mask;
+
+        // 保存旧的信号掩码
+        if !oldset.is_null() {
+            *translated_refmut(token, oldset) = old_mask;
+        }
+
+        // 如果 set 不为空，更新信号掩码
+        if !set.is_null() {
+            let new_set = *translated_ref(token, set);
+            match how {
+                SIG_BLOCK => {
+                    inner.signal_mask |= new_set;
+                    println!(
+                        "[kernel] sys_sigprocmask: Block signals, new mask: {:#x}",
+                        inner.signal_mask.bits()
+                    );
+                }
+                SIG_UNBLOCK => {
+                    inner.signal_mask &= !new_set;
+                    println!(
+                        "[kernel] sys_sigprocmask: Unblock signals, new mask: {:#x}",
+                        inner.signal_mask.bits()
+                    );
+                }
+                SIG_SETMASK => {
+                    inner.signal_mask = new_set;
+                    println!(
+                        "[kernel] sys_sigprocmask: Set signal mask to {:#x}",
+                        inner.signal_mask.bits()
+                    );
+                }
+                _ => {
+                    println!("[kernel] sys_sigprocmask: Invalid how value: {}", how);
+                    return -1;
+                }
+            }
+        }
+
+        0
+    } else {
+        println!("[kernel] sys_sigprocmask: No current task found");
+        -1
     }
 }

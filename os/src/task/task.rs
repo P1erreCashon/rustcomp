@@ -22,6 +22,8 @@ use vfs::get_root_dentry;
 use system_result::{SysResult,SysError};
 use core::mem::size_of;
 use crate::task::SignalFlags;
+use crate::task::signal::SigAction;
+use crate::task::action::SignalActions;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
@@ -123,6 +125,11 @@ pub struct TaskControlBlockInner {
    // pub fd_table_rlimit:RLimit,
     pub signals: SignalFlags, // 新增：未处理的信号
     pub killed: bool,         // 新增：是否被信号终止
+    pub frozen: bool,
+    pub signal_mask: SignalFlags,      // 信号掩码
+    pub signal_actions: SignalActions, // 信号处理函数表
+    pub handling_sig: isize,           // 当前正在处理的信号
+    pub trap_ctx_backup: Option<TrapFrame>, // 添加 trap_ctx_backup 字段
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
     pub stack_bottom: usize,
@@ -201,6 +208,10 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals
                     killed: false,
+                    frozen: false,
+                    signal_mask: SignalFlags::empty(),
+                    signal_actions: SignalActions::new(),
+                    handling_sig: -1,
                     heap_top: heap_top, //
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
@@ -208,6 +219,7 @@ impl TaskControlBlock {
                     mapareacontrol: MapAreaControl::new(),
                     //mmap_top: USER_MMAP_TOP,
                     tidaddress:TidAddress::new(),
+                    trap_ctx_backup: None, // 初始化 trap_ctx_backup
                     }
                 ),
         };
@@ -379,6 +391,10 @@ impl TaskControlBlock {
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals
                     killed: false,
+                    frozen: false,
+                    signal_mask: SignalFlags::empty(),
+                    signal_actions: SignalActions::new(),
+                    handling_sig: -1,
                     heap_top: parent_inner.heap_top,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
@@ -386,6 +402,7 @@ impl TaskControlBlock {
                     mapareacontrol: parent_inner.mapareacontrol.clone(),
                     //mmap_top: parent_inner.mmap_top,
                     tidaddress:TidAddress::new(),
+                    trap_ctx_backup: None, // 初始化 trap_ctx_backup
                 })
             ,
         });

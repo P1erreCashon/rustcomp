@@ -19,7 +19,7 @@ mod manager;
 mod pid;
 mod processor;
 mod signal;
-//mod switch;
+//mod switch;   
 #[allow(clippy::module_inception)]
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
@@ -27,6 +27,7 @@ mod aux;
 mod tid;
 mod info;
 mod fdtable;
+mod action;
 
 use crate::fs::open_file;
 use alloc::sync::Arc;
@@ -47,7 +48,7 @@ pub use processor::{
     current_task,  current_user_token, run_tasks, schedule, take_current_task,
     Processor, PROCESSOR
 };
-pub use signal::SignalFlags; // 显式导出 SignalFlags
+pub use signal::{SignalFlags, SigAction};
 pub use aux::*;
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
@@ -146,7 +147,6 @@ pub fn handle_signals() {
 
 /// 检查当前任务是否有未处理的信号，并调用信号处理函数
 fn check_pending_signals() {
-    // 如果没有当前任务，直接返回
     let task = match current_task() {
         Some(task) => task,
         None => return,
@@ -155,25 +155,104 @@ fn check_pending_signals() {
         let task_inner = task.inner_exclusive_access();
         let signal = match SignalFlags::from_bits(1 << sig) {
             Some(signal) => signal,
-            None => continue, // 跳过无效信号
+            None => continue,
         };
+        // 检查信号是否被屏蔽
         if task_inner.signals.contains(signal) {
+            println!(
+                "[kernel] Signal {} found in task.signals, mask: {:?}, handling_sig: {}",
+                sig, task_inner.signal_mask, task_inner.handling_sig
+            );
+            if task_inner.signal_mask.contains(signal) {
+                println!("[kernel] Signal {} is masked by signal_mask", sig);
+                continue;
+            }
+            let mut masked = true;
+            let handling_sig = task_inner.handling_sig;
+            if handling_sig == -1 {
+                masked = false;
+            } else {
+                let handling_sig = handling_sig as usize;
+                if !task_inner.signal_actions.table[handling_sig]
+                    .mask
+                    .contains(signal)
+                {
+                    masked = false;
+                }
+            }
+            if masked {
+                println!("[kernel] Signal {} is masked by handling_sig {}", sig, handling_sig);
+                continue;
+            }
+            println!("[kernel] Signal {} is not masked, proceeding to handle", sig);
             drop(task_inner);
             drop(task);
-            call_kernel_signal_handler(sig, signal);
+            // 根据信号类型决定处理方式
+            if signal == SignalFlags::SIGKILL
+                || signal == SignalFlags::SIGSTOP
+                || signal == SignalFlags::SIGCONT
+                || signal == SignalFlags::SIGDEF
+            {
+                call_kernel_signal_handler(sig, signal);
+            } else {
+                call_user_signal_handler(sig, signal);
+            }
             return;
         }
     }
 }
 
 /// 处理内核态信号
-fn call_kernel_signal_handler(_sig: usize, _signal: SignalFlags) {
+fn call_kernel_signal_handler(_sig: usize, signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
-    // 默认动作：终止进程
-    task_inner.killed = true;
-    // 不要移除信号，保留以便 check_error 使用
-    // task_inner.signals.remove(signal);
+    match signal {
+        SignalFlags::SIGSTOP => {
+            task_inner.frozen = true;
+            task_inner.signals.remove(SignalFlags::SIGSTOP);
+        }
+        SignalFlags::SIGCONT => {
+            task_inner.frozen = false;
+            task_inner.signals.remove(SignalFlags::SIGCONT);
+        }
+        SignalFlags::SIGKILL => {
+            task_inner.killed = true;
+            // 不要移除信号，保留以便 check_error 使用
+        }
+        SignalFlags::SIGDEF => {
+            // 默认信号处理：忽略
+            task_inner.signals.remove(SignalFlags::SIGDEF);
+        }
+        _ => {
+            // 其他信号：终止进程
+            task_inner.killed = true;
+        }
+    }
+}
+
+/// 处理用户态信号
+fn call_user_signal_handler(sig: usize, signal: SignalFlags) {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+
+    let handler = task_inner.signal_actions.table[sig].handler;
+    if handler != 0 {
+        // 用户定义的信号处理函数
+        task_inner.handling_sig = sig as isize;
+        task_inner.signals.remove(signal);
+
+        // 备份 trap 上下文
+        let trap_ctx = task_inner.get_trap_cx();
+        task_inner.trap_ctx_backup = Some(trap_ctx.clone());
+
+        // 修改 trap 上下文以调用信号处理函数
+        trap_ctx.sepc = handler;
+        trap_ctx.x[10] = sig; // a0 = 信号编号
+    } else {
+        // 默认行为：终止进程
+        println!("[kernel] call_user_signal_handler: No handler for signal {}, default action: terminate", sig);
+        task_inner.killed = true;
+    }
 }
 
 /// 检查当前任务是否因信号被终止，并返回错误码和消息
@@ -194,3 +273,4 @@ pub fn check_signals_error_of_current() -> Option<(isize, &'static str)> {
         None
     }
 }
+

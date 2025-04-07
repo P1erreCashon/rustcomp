@@ -1,10 +1,20 @@
 // os/src/task/signal.rs
+
 use bitflags::*;
 
 bitflags! {
     pub struct SignalFlags: u32 {
+        /// 默认信号处理，信号编号为 0
+        const SIGDEF = 1 << 0;
+        
+        /// 挂起信号（Stop），信号编号为 1
+        const SIGSTOP = 1 << 1;
+        
         /// 中断信号（Interrupt），通常由 Ctrl+C 触发，信号编号为 2
         const SIGINT = 1 << 2;
+        
+        /// 继续信号（Continue），信号编号为 3
+        const SIGCONT = 1 << 3;
         
         /// 非法指令信号（Illegal Instruction），信号编号为 4
         const SIGILL = 1 << 4;
@@ -15,9 +25,23 @@ bitflags! {
         /// 浮点异常信号（Floating-Point Exception），信号编号为 8
         const SIGFPE = 1 << 8;
         
+        /// 杀死信号（Kill），信号编号为 9
+        const SIGKILL = 1 << 9;
+        
+        /// 用户定义信号 1，信号编号为 10
+        const SIGUSR1 = 1 << 10;
+        
         /// 分段错误信号（Segmentation Violation），通常由非法内存访问触发，信号编号为 11
         const SIGSEGV = 1 << 11;
     }
+}
+
+/// 信号处理动作结构体
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy)]
+pub struct SigAction {
+    pub handler: usize,      // 信号处理函数地址
+    pub mask: SignalFlags,   // 信号掩码
 }
 
 impl SignalFlags {

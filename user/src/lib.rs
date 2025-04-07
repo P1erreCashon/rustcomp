@@ -17,6 +17,7 @@ use buddy_system_allocator::LockedHeap;
 use syscall::*;
 use core::fmt;
 use core::str;
+use core::ptr;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 extern "C" {
@@ -25,6 +26,18 @@ extern "C" {
 }
 
 pub const USER_HEAP_SIZE: usize = 32768;
+
+pub const SIGDEF: i32 = 0;
+pub const SIGSTOP: i32 = 1;
+pub const SIGINT: i32 = 2;
+pub const SIGCONT: i32 = 3;
+pub const SIGILL: i32 = 4;
+pub const SIGABRT: i32 = 6;
+pub const SIGFPE: i32 = 8;
+pub const SIGKILL: i32 = 9;
+pub const SIGUSR1: i32 = 10; // 定义 SIGUSR1
+pub const SIGSEGV: i32 = 11;
+
 /// 用于sys_times
 pub struct Tms { //记录起始时间
     /// 用户时间
@@ -89,6 +102,14 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
 // 当前堆顶地址
 static HEAP_TOP: AtomicUsize = AtomicUsize::new(0);
 
+/// Action for a signal
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Copy)]
+pub struct SigAction {
+    pub handler: usize,
+    pub mask: SignalFlags,
+}
+
 #[no_mangle]
 #[link_section = ".text.entry"]
 pub extern "C" fn _start(argc: usize, argv: usize) -> ! {
@@ -134,6 +155,22 @@ bitflags! {
         const TRUNC = 1 << 10;
     }
 }
+
+bitflags! {
+    pub struct SignalFlags: u32 {
+        const SIGDEF = 1 << 0;
+        const SIGSTOP = 1 << 1;
+        const SIGINT = 1 << 2;
+        const SIGCONT = 1 << 3;
+        const SIGILL = 1 << 4;
+        const SIGABRT = 1 << 6;
+        const SIGFPE = 1 << 8;
+        const SIGKILL = 1 << 9;
+        const SIGUSR1 = 1 << 10;
+        const SIGSEGV = 1 << 11;
+    }
+}
+
 pub fn chdir(path: &str) -> isize {
     sys_chdir(path)
 }
@@ -169,10 +206,35 @@ pub fn yield_() -> isize {
 pub fn kill(pid: usize, signal: i32) -> isize {
     sys_kill(pid, signal)
 }
+pub fn sigaction(
+    signum: i32,
+    act: Option<&SigAction>,
+    oldact: Option<&mut SigAction>,
+) -> isize {
+    sys_sigaction(
+        signum,
+        act.map_or(ptr::null(), |a| a as *const SigAction),
+        oldact.map_or(ptr::null_mut(), |a| a as *mut SigAction),
+    )
+}
+pub fn sigprocmask(
+    how: i32,
+    set: Option<&SignalFlags>,
+    oldset: Option<&mut SignalFlags>,
+) -> isize {
+    sys_sigprocmask(
+        how,
+        set.map_or(ptr::null(), |s| s as *const SignalFlags),
+        oldset.map_or(ptr::null_mut(), |s| s as *mut SignalFlags),
+    )
+}
+pub fn sigreturn() -> isize {
+    sys_sigreturn()
+}
 pub fn get_time() -> isize {
     sys_get_time()
 }
-pub fn getpid() -> isize {
+pub fn getpid() -> usize {
     sys_getpid()
 }
 pub fn fork() -> isize {

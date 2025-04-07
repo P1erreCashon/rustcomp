@@ -1,5 +1,7 @@
 use core::arch::asm;
 use crate::{Tms, Utsname};
+use crate::SigAction;
+use crate::SignalFlags;
 
 const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_GETCWD: usize =17;
@@ -16,6 +18,9 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_SIGACTION: usize = 134;
+const SYSCALL_SIGPROCMASK: usize = 135;
+const SYSCALL_SIGRETURN: usize = 139;
 const SYSCALL_TIMES: usize =153;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
@@ -88,12 +93,27 @@ pub fn sys_yield() -> isize {
 pub fn sys_kill(pid: usize, signal: i32) -> isize {
     syscall(SYSCALL_KILL, [pid, signal as usize, 0])
 }
+
+pub fn sys_sigaction(signum: i32, act: *const SigAction, oldact: *mut SigAction) -> isize {
+    syscall(SYSCALL_SIGACTION, [signum as usize, act as usize, oldact as usize])
+}
+
+pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFlags) -> isize {
+    syscall(SYSCALL_SIGPROCMASK, [how as usize, set as usize, oldset as usize])
+}
+
+pub fn sys_sigreturn() -> isize {
+    syscall(SYSCALL_SIGRETURN, [0, 0, 0])
+}
+
 pub fn sys_get_time() -> isize {
     syscall(SYSCALL_GET_TIME, [0, 0, 0])
 }
 
-pub fn sys_getpid() -> isize {
-    syscall(SYSCALL_GETPID, [0, 0, 0])
+pub fn sys_getpid() -> usize {
+    let result = syscall(SYSCALL_GETPID, [0, 0, 0]);
+    assert!(result >= 0, "sys_getpid failed unexpectedly");
+    result as usize
 }
 
 pub fn sys_fork() -> isize {
