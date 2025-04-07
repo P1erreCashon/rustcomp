@@ -140,7 +140,7 @@ pub trait File: Send + Sync{
     /// Read all data inside a inode into vector
     fn read_all(&self) -> Vec<u8> {
         let mut offset = self.get_offset();
-        let mut buffer = [0u8; 512];
+        let mut buffer = [0u8; 4096];
         let mut v: Vec<u8> = Vec::new();
         loop {
             let len = self.read_at(*offset, &mut buffer);
