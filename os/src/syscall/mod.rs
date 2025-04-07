@@ -71,6 +71,7 @@ const SYSCALL_GET_RANDOM: usize = 278;
 mod fs;
 mod process;
 
+use alloc::string::String;
 use arch::addr::VirtAddr;
 use fs::*;
 use process::*;
@@ -78,7 +79,7 @@ use crate::task::{pid2task, SignalFlags, suspend_current_and_run_next, exit_curr
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
@@ -275,13 +276,197 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         unreachable!("Should have exited");
     }
     if let Err(e) = result{
-        log_debug!("Syscall {} err:{}",syscall_id,e.as_str());
+        log_debug!("{} err:{}",sysid_to_string(syscall_id),e.as_str());
         return -(e as isize);
     }   
     else{
         if syscall_id != 63 && syscall_id != 64{
-            log_debug!("Syscall {} result:{}",syscall_id,result.clone().unwrap());
+            log_debug!("{} result:{}",sysid_to_string(syscall_id),result.clone().unwrap());
         }
         return result.unwrap();
     }
+}
+
+fn sysid_to_string(syscall_id: usize)->String{
+    let mut ret = String::new();
+    match syscall_id {
+        SYSCALL_IOCTL => {
+            ret.push_str("sys_ioctl");
+        }
+        SYSCALL_CHDIR => {
+            ret.push_str("sys_chdir");
+        }
+        SYSCALL_LINKAT => {
+            ret.push_str("sys_linkat");
+        }
+        SYSCALL_UNLINKAT => {
+            ret.push_str("sys_unlinkat");
+        }
+        SYSCALL_MKDIRAT => {
+            ret.push_str("sys_mkdirat");
+        }
+        SYSCALL_OPENAT => {
+            ret.push_str("sys_openat");
+        },
+        SYSCALL_CLOSE => {
+            ret.push_str("sys_close");
+        },
+        SYSCALL_READ => {
+            ret.push_str("sys_read");
+      //      log_debug!("syscall_read result:{}",result);
+        },
+        SYSCALL_WRITE =>{
+            ret.push_str("sys_write");
+      //      log_debug!("syscall_write result:{}",result);
+        },
+        SYSCALL_WRITEV =>{
+            ret.push_str("sys_writev");
+        },
+        SYSCALL_EXIT => {
+            ret.push_str("sys_exit");
+            
+        },
+        SYSCALL_YIELD => {
+        //    log_debug!("syscall_yield");
+        ret.push_str("sys_yield");
+        },
+        SYSCALL_KILL => {
+            ret.push_str("sys_kill");
+        },
+        SYSCALL_GET_TIME => {
+            ret.push_str("sys_gettime");
+        },
+        SYSCALL_GETPID => {
+            ret.push_str("sys_getpid");
+        },
+        SYSCALL_CLONE => {
+            ret.push_str("sys_clone");
+        },
+        SYSCALL_EXEC => {
+            ret.push_str("sys_exec");
+        },
+        SYSCALL_WAITPID => {
+            ret.push_str("sys_waitpid");
+        //    log_debug!("syscall_waitpid result:{}",result);
+        },
+        SYSCALL_PIPE => {
+            ret.push_str("sys_pipe");
+        },
+        SYSCALL_BRK => {
+            ret.push_str("sys_brk");
+        },
+        SYSCALL_MOUNT => {
+            ret.push_str("sys_mount");
+        },
+        SYSCALL_UMOUNT => {
+            ret.push_str("sys_umount");
+        },
+        SYSCALL_STATFS => {
+            ret.push_str("sys_statfs");
+        },
+        SYSCALL_FACCESSAT => {
+            ret.push_str("sys_faccrssat");
+        },
+        SYSCALL_LSEEK => {
+            ret.push_str("sys_lseek");
+        },
+        SYSCALL_FSTATAT => {
+            ret.push_str("sys_fstatat");
+        },
+        SYSCALL_FSTAT => {
+            ret.push_str("sys_fstat");
+        },
+        SYSCALL_UTIMENSAT => {
+            ret.push_str("sys_utimensat");
+        },
+        SYSCALL_GETCWD => {
+            ret.push_str("sys_getcwd");
+        }
+        SYSCALL_DUP => {
+            ret.push_str("sys_dup");
+        }
+        SYSCALL_DUP3 => {
+            ret.push_str("sys_dup3");
+        }
+        SYSCALL_FCNTL => {
+            ret.push_str("sys_fcntl");
+        }
+        SYSCALL_TIMES => {
+            ret.push_str("times");
+        }
+        SYSCALL_UNAME => {
+            ret.push_str("sys_uname");
+        }
+        SYSCALL_MMAP => {
+            ret.push_str("sys_mmap");
+        }
+        SYSCALL_MUNMAP => {
+            ret.push_str("sys_munmap");
+        }
+        SYSCALL_GETDENTS64 => {
+            ret.push_str("sys_getdents64");
+        }
+        SYSCALL_NANOSLEEP => {
+            ret.push_str("sys_nanosleep");
+        }
+        SYSCALL_GETPPID => {
+            ret.push_str("sys_getppid");
+        },
+        SYSCALL_GETUID=>{//没有用户，返回代表root的0
+            ret.push_str("sys_gettuid");
+        }
+        SYSCALL_GETEUID=>{//没有用户，返回代表root的0
+            ret.push_str("sys_geteuid");
+        }
+        SYSCALL_GETGID=>{//没有用户，返回代表root的0
+            ret.push_str("sys_getgid");
+        }
+        SYSCALL_GETEGID=>{//没有用户，返回代表root的0
+            ret.push_str("sys_getegid");
+        }
+        SYSCALL_SET_ROBUST_LIST=>{//没有影响
+            ret.push_str("sys_set_rubust_list");
+        }
+        SYSCALL_GET_ROBUST_LIST=>{//没有影响
+            ret.push_str("sys_get_robust_list");
+        }
+        SYSCALL_SET_TID_ADDRESS=>{//
+            ret.push_str("sys_settidaddress");
+        }
+        SYSCALL_PRLIMIT64=>{//
+            ret.push_str("sys_prlimit64");
+        }
+        SYSCALL_SENDFILE=>{//
+            ret.push_str("sys_sendfile");
+        }
+        SYSCALL_READLINKAT=>{//
+            ret.push_str("sys_readlinkat");
+        }
+        SYSCALL_SETGID => {// 无
+            ret.push_str("sys_setgid");
+        }
+        SYSCALL_SETUID => {// 无
+            ret.push_str("sys_setuid");
+        }
+        SYSCALL_EXIT_GROUP => {// 无返回值
+            ret.push_str("sys_exitgroup");
+        }
+        SYSCALL_CLOCK_GETTIME => {
+            ret.push_str("sys_gettime");
+        }
+        SYSCALL_GET_RANDOM => {
+            ret.push_str("sys_getrandom");
+        }
+        SYSCALL_SYSINFO => {
+            ret.push_str("sys_sysinfo");
+        }
+        SYSCALL_SYSLOG => {
+            ret.push_str("sys_log");
+        }
+        SYSCALL_MPROTECT => {
+            ret.push_str("sys_mprotect");
+        }
+        _ => panic!("Unsupported syscall_id: {}", syscall_id),
+    }
+    ret
 }
