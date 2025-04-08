@@ -40,7 +40,7 @@ impl File for Ext4ImplFile{
         let sb = dentry.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT).unwrap();
         let inode = dentry.get_inode().unwrap().downcast_arc::<Ext4Inode>().map_err(|_| SysError::ENOENT).unwrap();
         let write_len = _buf.len();
-        sb.ext4fs.ext4_file_write(inode.get_meta().ino as u64, _offset as i64,_buf);
+        let _ = sb.ext4fs.ext4_file_write(inode.get_meta().ino as u64, _offset as i64,_buf);
         write_len
     }
     fn readable(&self) -> bool {

@@ -7,7 +7,7 @@ use vfs_defs::UserBuffer;
 use vfs_defs::FileInner;
 use vfs_defs::Dentry;
 use crate::sync::UPSafeCell;
-const RING_BUFFER_SIZE: usize = 32;
+const RING_BUFFER_SIZE: usize = 1024;
 
 /// pipe
 pub struct Pipe {

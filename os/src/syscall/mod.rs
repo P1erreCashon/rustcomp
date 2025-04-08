@@ -32,6 +32,7 @@ const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_SENDFILE:usize = 71;
+const SYSCALL_PPOLL:usize = 73;
 const SYSCALL_READLINKAT:usize = 78;
 const SYSCALL_FSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
@@ -51,6 +52,8 @@ const SYSCALL_KILL: usize = 129;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
 const SYSCALL_TIMES: usize = 153;
+const SYSCALL_SETPGID:usize = 154;
+const SYSCALL_GETPGID:usize = 155;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
@@ -77,11 +80,11 @@ use alloc::string::String;
 use arch::addr::VirtAddr;
 use fs::*;
 use process::*;
-use crate::task::{pid2task, SignalFlags, suspend_current_and_run_next, exit_current_and_run_next, check_signals_error_of_current};
+use crate::task::{check_signals_error_of_current, current_task, exit_current_and_run_next, pid2task, suspend_current_and_run_next, SignalFlags};
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
@@ -122,7 +125,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
         },
         SYSCALL_EXIT => {
-            log_debug!("syscall_exit exit code:{}",args[0]);
+            let pid = current_task().unwrap().pid.0;
+            log_debug!("syscall_exit exit code:{} pid:{}",args[0],pid);
             sys_exit(args[0] as i32);
             
         },
@@ -202,6 +206,12 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_TIMES => {
             result = sys_times(args[0] as *mut Tms);
         }
+        SYSCALL_GETPGID => {
+            result = Ok(0);
+        }
+        SYSCALL_SETPGID => {
+            result = Ok(0);
+        }
         SYSCALL_UNAME => {
             result = sys_uname(args[0] as *mut Utsname);
         }
@@ -247,6 +257,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SENDFILE=>{//
             result = sys_sendfile(args[0] as isize, args[1] as isize, args[2] as *mut usize, args[3]);
         }
+        SYSCALL_PPOLL=>{//
+            result = Ok(1);
+        }
         SYSCALL_READLINKAT=>{//
             result = Ok(-1);
         }
@@ -257,7 +270,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = Ok(0);
         }
         SYSCALL_EXIT_GROUP => {// 无返回值
-            log_debug!("syscall_exit exit code:{}", args[0]);
+            let pid = current_task().unwrap().pid.0;
+            log_debug!("syscall_exit exit code:{} pid:{}", args[0],pid);
             sys_exit_group(args[0] as i32);
         }
         SYSCALL_CLOCK_GETTIME => {
@@ -288,8 +302,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         return -(e as isize);
     }   
     else{
+        let pid = current_task().unwrap().pid.0;
         if syscall_id != 63 && syscall_id != 64{
-            log_debug!("{} result:{}",sysid_to_string(syscall_id),result.clone().unwrap());
+            log_debug!("pid:{} {} result:{}",pid,sysid_to_string(syscall_id),result.clone().unwrap());
         }
         return result.unwrap();
     }
@@ -408,6 +423,12 @@ fn sysid_to_string(syscall_id: usize)->String{
         SYSCALL_TIMES => {
             ret.push_str("times");
         }
+        SYSCALL_GETPGID => {
+            ret.push_str("sys_getpgid");
+        }
+        SYSCALL_SETPGID => {
+            ret.push_str("sys_setpgid");
+        }
         SYSCALL_UNAME => {
             ret.push_str("sys_uname");
         }
@@ -479,6 +500,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_MPROTECT => {
             ret.push_str("sys_mprotect");
+        }
+        SYSCALL_PPOLL => {
+            ret.push_str("sys_ppoll");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

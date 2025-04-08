@@ -1,0 +1,3 @@
+echo "#### independent command test"
+
+

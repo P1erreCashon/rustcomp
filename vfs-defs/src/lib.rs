@@ -88,3 +88,22 @@ pub struct StatFs {
     /// 
     pub f_spare: [isize; 4],
 }
+
+bitflags::bitflags! {
+    ///
+    #[derive(Debug, Clone, Copy)]
+    pub struct PollEvents: i16 {
+        /// There is data to read.
+        const POLLIN = 0x001;
+        /// There is urgent data to read.
+        const POLLPRI = 0x002;
+        ///  Writing now will not block.
+        const POLLOUT = 0x004;
+        /// Error condition.
+        const POLLERR = 0x008;
+        /// Hang up.
+        const POLLHUP = 0x010;
+        /// Invalid poll request.
+        const POLLINVAL = 0x020;
+    }
+}
