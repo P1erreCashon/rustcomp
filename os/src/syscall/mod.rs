@@ -258,7 +258,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_sendfile(args[0] as isize, args[1] as isize, args[2] as *mut usize, args[3]);
         }
         SYSCALL_PPOLL=>{//
-            result = Ok(1);
+            result = Ok(0);
         }
         SYSCALL_READLINKAT=>{//
             result = Ok(-1);
