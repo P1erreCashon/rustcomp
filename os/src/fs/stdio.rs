@@ -5,11 +5,12 @@ use alloc::{sync::Arc, vec::Vec};
 use alloc::string::String;
 use spin::{Mutex, MutexGuard};
 use crate::task::suspend_current_and_run_next;
-use vfs_defs::{File,UserBuffer,FileInner,Kstat,Dentry,DentryInner,SuperBlock,OpenFlags,DiskInodeType,InodeMeta,InodeMetaInner,Inode};
+use vfs_defs::{Dentry, DentryInner, DiskInodeType, File, FileInner, Inode, InodeMeta, InodeMetaInner, Kstat, OpenFlags, PollEvents, SuperBlock, UserBuffer,RenameFlags};
 use lazy_static::*;
 use system_result::{SysResult,SysError};
 ///Standard input
 pub struct Stdin{
+    buf:Mutex<Option<u8>>,
     inner:FileInner
 }
 ///Standard output
@@ -20,6 +21,7 @@ pub struct Stdout{
 impl Stdin{
     pub fn new(inner:FileInner)->Self{
         Self{
+            buf:Mutex::new(None),
             inner
         }
     }
@@ -43,6 +45,13 @@ impl File for Stdin {
         assert_eq!(user_buf.len(), 1);
         // busy loop
         let c: u8;
+        let mut buf = self.buf.lock();
+        if buf.is_some(){
+            user_buf[0] = buf.unwrap();
+            *buf = None;
+            return 1;
+        }
+        drop(buf);
         loop {
             if let Some(ch) = console_getchar() {
                 c = ch;
@@ -73,6 +82,21 @@ impl File for Stdin {
     fn get_offset(&self)->MutexGuard<usize> {
         self.get_inner().offset.lock()
     }
+    fn poll(&self, events: PollEvents) -> PollEvents {
+        if  ! events.contains(PollEvents::POLLIN) { 
+            return PollEvents::empty();
+        }
+        loop {
+            if let Some(ch) = console_getchar() {
+                let mut buf = self.buf.lock();
+                *buf = Some(ch);
+                drop(buf);
+                break;
+            }
+            suspend_current_and_run_next();
+        }
+        return PollEvents::POLLIN;
+    }
 }
 
 
@@ -88,7 +112,8 @@ impl File for Stdout {
     }
     fn write(&self, user_buf: &[u8]) -> usize {
     //    for buffer in user_buf.iter() {
-            print!("{}", core::str::from_utf8(user_buf).unwrap());
+     //       print!("{}", core::str::from_utf8(user_buf).unwrap());
+            unsafe {print!("{}", core::str::from_utf8_unchecked(user_buf));}
     //    }
         user_buf.len()
     }
@@ -104,6 +129,9 @@ impl File for Stdout {
     }
     fn get_offset(&self)->MutexGuard<usize> {
         self.get_inner().offset.lock()
+    }
+    fn poll(&self, _events: PollEvents) -> PollEvents {
+        return PollEvents::POLLOUT;
     }
 }
 
@@ -158,6 +186,9 @@ impl Dentry for StdioDentry{
     }
     fn concrete_new_child(self: Arc<Self>, _name: &str) -> Arc<dyn Dentry> {
         unimplemented!()
+    }
+    fn concrete_rename(self: Arc<Self>, _new: Arc<dyn Dentry>, _flags: RenameFlags) -> SysResult<()> {
+        Err(SysError::ENOTDIR)
     }
 }
 

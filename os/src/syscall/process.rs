@@ -149,7 +149,14 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> SysResult<isize> {
             first_arg = false;
         }
         else{
-            args_vec.push(translated_str(token, arg_str_ptr as *const u8));
+            let arg_str = translated_str(token, arg_str_ptr as *const u8);
+            if arg_str == "rm"{
+                args_vec.push(arg_str);
+                args_vec.push(String::from("-f"));
+            }
+            else{
+                args_vec.push(arg_str);
+            }
         }
         
         unsafe {
@@ -649,7 +656,9 @@ pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFla
         -1
     }
 }
-
+pub fn sys_gettid()->SysResult<isize>{
+    Ok(current_task().unwrap().pid.0 as isize)
+}
 pub fn sys_sigreturn() -> isize {
     if let Some(task) = current_task() {
         let mut task_inner = task.inner_exclusive_access();

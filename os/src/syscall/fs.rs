@@ -12,10 +12,10 @@ use arch::addr::{VirtAddr, VirtPage};
 use arch::PAGE_SIZE;
 use arch::time::Time;
 use device::BLOCK_DEVICE;
-use vfs_defs::Kstat;
+use vfs_defs::{Kstat, PollEvents};
 use vfs_defs::MountFlags;
 
-use vfs_defs::{OpenFlags,UserBuffer,StatFs,SeekFlags};
+use vfs_defs::{OpenFlags,UserBuffer,StatFs,SeekFlags,RenameFlags};
 use vfs::FILE_SYSTEMS;
 //
 use crate::mm::frame_alloc_more;
@@ -686,4 +686,85 @@ pub fn sys_sendfile(outfd:isize,infd:isize,offset:*mut usize,count:usize)->SysRe
     }
     let ret = outfile.write(&buf[..len]);
     return Ok(ret as isize);
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct PollFd {
+    /// file descriptor
+    fd: i32,
+    /// requested events    
+    events: PollEvents,
+    /// returned events
+    revents: PollEvents,
+}
+
+pub fn sys_poll(fds:*mut PollFd,nfds:usize,_timeout:*const TimeSpec)->SysResult<isize>{
+    let token = current_user_token();
+    let mut poll_fds:Vec<&mut PollFd> = Vec::new();
+    let mut ret = 0;
+    for _i in 0..nfds{
+        let fd = translated_refmut(token, fds);
+        poll_fds.push(fd);
+        unsafe {
+            let _ = fds.add(1);
+        }
+    }
+    loop{
+        for fd in poll_fds.iter_mut(){
+            fd.revents = PollEvents::empty();
+            if fd.fd < 0 {continue;}
+            let mut reti = 0;
+            let task = current_task().unwrap();
+            let inner = task.inner_exclusive_access();
+            let file = inner.fd_table.get_file(fd.fd as usize);
+            if file.is_err(){
+                fd.revents = fd.revents | PollEvents::POLLINVAL;
+                reti = 1;
+            }
+            else{
+                let file = file.unwrap();
+                if fd.events.contains(PollEvents::POLLIN){ 
+                    drop(inner);
+                    if file.poll(PollEvents::POLLIN).contains(PollEvents::POLLIN){
+                        fd.revents = fd.revents | PollEvents::POLLIN;
+                        reti = 1;
+                    }
+                }
+                if fd.events.contains(PollEvents::POLLOUT){
+                    if file.poll(PollEvents::empty()).contains(PollEvents::POLLOUT){
+                        fd.revents = fd.revents | PollEvents::POLLOUT;
+                        reti = 1;
+                    }
+                }
+            }
+            ret += reti;
+        }
+        if ret != 0{
+            break;
+        }
+    }
+    return Ok(ret);
+}
+
+pub fn sys_renameat2(olddirfd:isize,oldpath:*const u8,newdirfd:isize,newpath:*const u8,flags:usize)->SysResult<isize>{
+    let flags = RenameFlags::from_bits_retain(flags as i32);
+    let oldpath = parse_fd_path(olddirfd, oldpath)?;
+    let newpath = parse_fd_path(newdirfd, newpath)?;
+    let old_dentry = path_to_dentry(&oldpath)?;
+    let new_dentry;
+    let r = path_to_dentry(&newpath);
+    if r.is_ok(){
+        new_dentry = r.unwrap();
+    }
+    else{
+        let mut name = String::new();
+        let father = path_to_father_dentry(&newpath, &mut name)?;
+        new_dentry = father.find_or_create(name.as_str(), *old_dentry.get_inode()?.get_meta()._type.lock());
+    }
+    if let Err(e)= old_dentry.vfs_rename(&new_dentry, flags){
+        return Err(e);
+    }
+    return Ok(0);
+    
 }

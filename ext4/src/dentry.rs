@@ -1,4 +1,4 @@
-use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags};
+use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags,RenameFlags};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::{String,ToString};
@@ -188,8 +188,42 @@ impl Dentry for Ext4Dentry{
         self.get_inner().children.lock().remove(&old.get_name_string());
         Ok(())
     }
+    fn concrete_rename(self: Arc<Self>, new: Arc<dyn Dentry>, flags: RenameFlags) -> SysResult<()> {
+        let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
+        let old_type = *self.get_inode()?.get_meta()._type.lock();
+        if !new.has_no_inode() {
+            let new_type = *new.get_inode()?.get_meta()._type.lock();
+            if new_type != old_type {
+                return match (old_type, new_type) {
+                    (DiskInodeType::File, DiskInodeType::Directory) => Err(SysError::EISDIR),
+                    (DiskInodeType::Directory, DiskInodeType::File) => Err(SysError::ENOTDIR),
+                    _ => unimplemented!(),
+                };
+            }
+            match new_type {
+                DiskInodeType::Directory => {
+                    let parent = new.get_father().unwrap().get_inode()?.get_meta().ino;
+                    let _ = sblock.ext4fs.dir_remove(parent as u32, new.path().as_str());
+                },
+                DiskInodeType::File => {let _ = sblock.ext4fs.file_remove(new.path().as_str());},
+                _ => todo!(),
+            };
+        }
+        self.clone().concrete_link(&new)?;
+        new.set_inode(self.get_inode()?);
+        if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+            self.set_inode(new.get_inode()?);
+        } else {
+            *self.inner.inode.lock() = None;
+        }
+        Ok(())
+    }
     fn open(self:Arc<Self>,flags:OpenFlags)->Arc<dyn File> {
-        let file = Arc::new(Ext4ImplFile::new(FileInner::new(self)));
+        let len = self.get_inode().unwrap().get_size();
+        let file = Arc::new(Ext4ImplFile::new(FileInner::new(self)));        
+        if flags.contains(OpenFlags::APPEND){
+            *file.get_offset() = len as usize;
+        }
         *file.get_inner().flags.lock() = flags;
         file
     }

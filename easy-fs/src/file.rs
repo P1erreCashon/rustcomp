@@ -1,4 +1,4 @@
-use vfs_defs::{File,FileInner};
+use vfs_defs::{File,FileInner, PollEvents};
 use system_result::SysError;
 use super::EfsInode;
 
@@ -25,6 +25,9 @@ impl EfsFile{
 }
 
 impl File for EfsFile{
+    fn poll(&self, events: vfs_defs::PollEvents) -> vfs_defs::PollEvents {
+        PollEvents::POLLIN | PollEvents::POLLOUT
+    }
     fn readable(&self) -> bool {
         self.readable
     }

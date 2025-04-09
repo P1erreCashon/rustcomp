@@ -63,6 +63,7 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETGID: usize = 176;
 const SYSCALL_GETEGID: usize = 177;
+const SYSCALL_GETTID: usize = 178;
 const SYSCALL_SYSINFO: usize = 179;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
@@ -72,6 +73,7 @@ const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
+const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GET_RANDOM: usize = 278;
 
 mod fs;
@@ -85,7 +87,7 @@ use crate::task::{check_signals_error_of_current, current_task, exit_current_and
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
@@ -246,6 +248,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_GETEGID=>{//没有用户，返回代表root的0
             result = Ok(1);
         }
+        SYSCALL_GETTID=>{//没有用户，返回代表root的0
+            result = sys_gettid();
+        }
         SYSCALL_SET_ROBUST_LIST=>{//没有影响
             result = Ok(0);
         }
@@ -262,7 +267,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_sendfile(args[0] as isize, args[1] as isize, args[2] as *mut usize, args[3]);
         }
         SYSCALL_PPOLL=>{//
-            result = Ok(0);
+            result = sys_poll(args[0] as *mut PollFd, args[1], args[2] as *const TimeSpec);
         }
         SYSCALL_READLINKAT=>{//
             result = Ok(-1);
@@ -280,6 +285,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         }
         SYSCALL_CLOCK_GETTIME => {
             result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
+        }
+        SYSCALL_RENAMEAT2 => {
+            result = sys_renameat2(args[0] as isize, args[1] as *const u8, args[2] as isize,args[3] as *const u8,args[4]);
         }
         SYSCALL_GET_RANDOM => {
             result = sys_get_random(args[0] as *mut u8, args[1] as usize, args[2] as usize);
@@ -510,6 +518,12 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_PPOLL => {
             ret.push_str("sys_ppoll");
+        }
+        SYSCALL_GETTID => {
+            ret.push_str("sys_gettid");
+        }
+        SYSCALL_RENAMEAT2 => {
+            ret.push_str("sys_renameat2");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
