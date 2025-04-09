@@ -560,17 +560,7 @@ pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     }
 }
 
-fn check_sigaction_error(signal: SignalFlags, action: usize, old_action: usize) -> bool {
-    if action == 0
-        || old_action == 0
-        || signal == SignalFlags::SIGKILL
-        || signal == SignalFlags::SIGSTOP
-    {
-        true
-    } else {
-        false
-    }
-}
+
 
 pub fn sys_sigaction(
     signum: i32,
@@ -582,41 +572,43 @@ pub fn sys_sigaction(
     let mut inner = task.inner_exclusive_access();
 
     // 检查信号编号是否合法
-    if signum as usize > MAX_SIG {
-        println!("[kernel] sys_sigaction: Invalid signal number: {}", signum);
+    if signum <= 0 || signum as usize > MAX_SIG {
+        
         return -1;
     }
 
     // 将 signum 转换为 SignalFlags
-    if let Some(flag) = SignalFlags::from_bits(1 << signum) {
-        // 检查参数是否合法
-        if check_sigaction_error(flag, action as usize, old_action as usize) {
-            println!(
-                "[kernel] sys_sigaction: Invalid parameters for signal: {:?}", flag
-            );
-            return -1;
+    let flag = match SignalFlags::from_bits(1 << signum) {
+        Some(flag) => flag,
+        None => {
+            
+            SignalFlags::empty()
         }
+    };
 
-        // 保存旧的信号处理函数
-        let prev_action = inner.signal_actions.table[signum as usize];
-        if !old_action.is_null() {
-            *translated_refmut(token, old_action) = prev_action;
-        }
-
-        // 设置新的信号处理函数
-        if !action.is_null() {
-            inner.signal_actions.table[signum as usize] = *translated_ref(token, action);
-        }
-
-        println!(
-            "[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",
-            signum, inner.signal_actions.table[signum as usize].handler
-        );
-        0
-    } else {
-        println!("[kernel] sys_sigaction: Signal not supported: {}", signum);
-        -1
+    // 检查参数是否合法
+    if check_sigaction_error(flag) {
+        
+        return -1;
     }
+
+    // 保存旧的信号处理函数
+    let prev_action = inner.signal_actions.table[signum as usize];
+    if !old_action.is_null() {
+        *translated_refmut(token, old_action) = prev_action;
+    }
+
+    // 设置新的信号处理函数
+    if !action.is_null() {
+        inner.signal_actions.table[signum as usize] = *translated_ref(token, action);
+    }
+
+    0
+}
+
+fn check_sigaction_error(signal: SignalFlags) -> bool {
+    // 只限制 SIGKILL 和 SIGSTOP
+    signal == SignalFlags::SIGKILL || signal == SignalFlags::SIGSTOP
 }
 
 // 定义 how 参数的可能值（参考 POSIX）
@@ -641,27 +633,18 @@ pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFla
             match how {
                 SIG_BLOCK => {
                     inner.signal_mask |= new_set;
-                    println!(
-                        "[kernel] sys_sigprocmask: Block signals, new mask: {:#x}",
-                        inner.signal_mask.bits()
-                    );
+                    
                 }
                 SIG_UNBLOCK => {
                     inner.signal_mask &= !new_set;
-                    println!(
-                        "[kernel] sys_sigprocmask: Unblock signals, new mask: {:#x}",
-                        inner.signal_mask.bits()
-                    );
+                    
                 }
                 SIG_SETMASK => {
                     inner.signal_mask = new_set;
-                    println!(
-                        "[kernel] sys_sigprocmask: Set signal mask to {:#x}",
-                        inner.signal_mask.bits()
-                    );
+                    
                 }
                 _ => {
-                    println!("[kernel] sys_sigprocmask: Invalid how value: {}", how);
+                    
                     return -1;
                 }
             }
@@ -669,11 +652,27 @@ pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFla
 
         0
     } else {
-        println!("[kernel] sys_sigprocmask: No current task found");
+        
         -1
     }
 }
-
 pub fn sys_gettid()->SysResult<isize>{
     Ok(current_task().unwrap().pid.0 as isize)
+}
+pub fn sys_sigreturn() -> isize {
+    if let Some(task) = current_task() {
+        let mut task_inner = task.inner_exclusive_access();
+        if let Some(backup) = task_inner.trap_ctx_backup.take() {
+            task_inner.handling_sig = -1;
+            task_inner.trap_cx = backup;
+            // 返回信号处理程序的返回值（通常为 0）
+            0
+        } else {
+
+            -1
+        }
+    } else {
+        
+        -1
+    }
 }
