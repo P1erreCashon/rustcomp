@@ -151,11 +151,14 @@ fn check_pending_signals() {
         Some(task) => task,
         None => return,
     };
-    for sig in 0..=MAX_SIG {
+    for sig in 1..=MAX_SIG {
         let task_inner = task.inner_exclusive_access();
         let signal = match SignalFlags::from_bits(1 << sig) {
             Some(signal) => signal,
-            None => continue,
+            None => {
+                println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, but proceeding", sig);
+                SignalFlags::empty()
+            }
         };
         // 检查信号是否被屏蔽
         if task_inner.signals.contains(signal) {
@@ -191,7 +194,6 @@ fn check_pending_signals() {
             if signal == SignalFlags::SIGKILL
                 || signal == SignalFlags::SIGSTOP
                 || signal == SignalFlags::SIGCONT
-                || signal == SignalFlags::SIGDEF
             {
                 call_kernel_signal_handler(sig, signal);
             } else {
@@ -203,29 +205,28 @@ fn check_pending_signals() {
 }
 
 /// 处理内核态信号
-fn call_kernel_signal_handler(_sig: usize, signal: SignalFlags) {
+fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     match signal {
         SignalFlags::SIGSTOP => {
             task_inner.frozen = true;
             task_inner.signals.remove(SignalFlags::SIGSTOP);
+            println!("[kernel] Task {} stopped by SIGSTOP", task.getpid());
         }
         SignalFlags::SIGCONT => {
             task_inner.frozen = false;
             task_inner.signals.remove(SignalFlags::SIGCONT);
+            println!("[kernel] Task {} continued by SIGCONT", task.getpid());
         }
         SignalFlags::SIGKILL => {
             task_inner.killed = true;
-            // 不要移除信号，保留以便 check_error 使用
-        }
-        SignalFlags::SIGDEF => {
-            // 默认信号处理：忽略
-            task_inner.signals.remove(SignalFlags::SIGDEF);
+            println!("[kernel] Task {} killed by SIGKILL", task.getpid());
         }
         _ => {
-            // 其他信号：终止进程
+            // 其他内核信号：终止进程
             task_inner.killed = true;
+            println!("[kernel] Task {} terminated by signal {}", task.getpid(), sig);
         }
     }
 }
@@ -248,16 +249,34 @@ fn call_user_signal_handler(sig: usize, signal: SignalFlags) {
         // 修改 trap 上下文以调用信号处理函数
         trap_ctx.sepc = handler;
         trap_ctx.x[10] = sig; // a0 = 信号编号
+        println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
     } else {
-        // 默认行为：终止进程
-        println!("[kernel] call_user_signal_handler: No handler for signal {}, default action: terminate", sig);
-        task_inner.killed = true;
+        // 默认行为
+        match signal {
+            SignalFlags::SIGCHLD => {
+                // SIGCHLD 默认忽略
+                task_inner.signals.remove(signal);
+                println!("[kernel] Signal {} (SIGCHLD) ignored by default", sig);
+            }
+            SignalFlags::SIGCONT => {
+                // SIGCONT 默认继续进程（已在 call_kernel_signal_handler 中处理）
+                task_inner.signals.remove(signal);
+                println!("[kernel] Signal {} (SIGCONT) handled by kernel", sig);
+            }
+            SignalFlags::SIGWINCH => {
+                // SIGWINCH 默认忽略
+                task_inner.signals.remove(signal);
+                println!("[kernel] Signal {} (SIGWINCH) ignored by default", sig);
+            }
+            _ => {
+                // 其他信号默认终止进程
+                task_inner.killed = true;
+                println!("[kernel] Task {} terminated by signal {} (default action)", task.getpid(), sig);
+            }
+        }
     }
 }
 
-/// 检查当前任务是否因信号被终止，并返回错误码和消息
-///
-/// 如果任务被标记为 `killed`，返回 `Some((error_code, error_message))`，否则返回 `None`。
 pub fn check_signals_error_of_current() -> Option<(isize, &'static str)> {
     let task = match current_task() {
         Some(task) => task,
@@ -273,4 +292,3 @@ pub fn check_signals_error_of_current() -> Option<(isize, &'static str)> {
         None
     }
 }
-

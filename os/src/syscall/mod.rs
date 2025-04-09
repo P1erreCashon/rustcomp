@@ -51,6 +51,7 @@ const SYSCALL_SETUID: usize =146;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
+const SYSCALL_SIGRETURN: usize = 139;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_SETPGID:usize = 154;
 const SYSCALL_GETPGID:usize = 155;
@@ -143,6 +144,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         }
         SYSCALL_SIGPROCMASK => {
             result = Ok(sys_sigprocmask(args[0] as i32, args[1] as *const _, args[2] as *mut _));
+        }
+        SYSCALL_SIGRETURN => {
+            result = Ok(sys_sigreturn());
         }
         SYSCALL_GET_TIME => {
             result = sys_get_time(args[0] as *mut TimeSpec);
@@ -362,6 +366,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         SYSCALL_SIGPROCMASK => {
             ret.push_str("sys_sigprocmask");
         },
+        SYSCALL_SIGRETURN => {
+            ret.push_str("sys_sigreturn");
+        }
         SYSCALL_GET_TIME => {
             ret.push_str("sys_gettime");
         },
