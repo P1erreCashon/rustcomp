@@ -7,7 +7,7 @@ use alloc::{
 use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock};
 use spin::{Mutex,MutexGuard};
 use system_result::{SysError,SysResult};
-use super::{File,OpenFlags};
+use super::{File,OpenFlags,RenameFlags};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 ///
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
@@ -68,6 +68,8 @@ pub trait Dentry: Send + Sync {
     fn concrete_link(self: Arc<Self>, new: &Arc<dyn Dentry>) -> SysResult<()>;
     ///
     fn concrete_unlink(self: Arc<Self>, old: &Arc<dyn Dentry>) -> SysResult<()>;
+    ///    
+    fn concrete_rename(self: Arc<Self>, new: Arc<dyn Dentry>, flags: RenameFlags) -> SysResult<()>;
     /// get a clone of self inode
     fn get_inode(&self) -> SysResult<Arc<dyn Inode>> {
         self.get_inner()
@@ -226,5 +228,31 @@ impl dyn Dentry{
             let ret = self.clone().concrete_unlink(old);
             ret
         }
+    }
+    ///
+    pub fn vfs_rename(self: &Arc<Self>, new: &Arc<Self>,flags:RenameFlags)->SysResult<()>{
+        if flags.contains(RenameFlags::RENAME_EXCHANGE) && (flags.contains(RenameFlags::RENAME_NOREPLACE) || flags.contains(RenameFlags::RENAME_WHITEOUT)){
+            return Err(SysError::EINVAL);
+        }
+        if new.is_subdir(self) {
+            return Err(SysError::EINVAL);
+        }
+        if new.has_no_inode() && flags.contains(RenameFlags::RENAME_EXCHANGE) {
+            return Err(SysError::ENOENT);
+        } else if flags.contains(RenameFlags::RENAME_NOREPLACE) {
+            return Err(SysError::EEXIST);
+        }
+        self.clone().concrete_rename(new.clone(), flags)
+    }
+    ///
+    pub fn is_subdir(self: &Arc<Self>, dir: &Arc<Self>) -> bool {
+        let mut father = self.get_father();
+        while let Some(parent) = father {
+            if Arc::ptr_eq(self, dir) {
+                return true;
+            }
+            father = parent.get_father();
+        }
+        false
     }
 }

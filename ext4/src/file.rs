@@ -1,4 +1,4 @@
-use vfs_defs::{File,FileInner, Inode};
+use vfs_defs::{File,FileInner, Inode,PollEvents};
 use system_result::SysError;
 use crate::superblock::Ext4Superblock;
 use crate::inode::Ext4Inode;
@@ -50,5 +50,8 @@ impl File for Ext4ImplFile{
     fn writable(&self) -> bool {
         let (_readable,writable) = self.get_inner().flags.lock().read_write();
         writable
+    }
+    fn poll(&self, _events: PollEvents) -> PollEvents {
+        return PollEvents::POLLIN | PollEvents::POLLOUT;
     }
 }

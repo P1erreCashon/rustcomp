@@ -98,6 +98,9 @@ impl Dentry for EfsDentry{
     fn load_dir(self:Arc<Self>)->SysResult<()> {
         unimplemented!()
     }
+    fn concrete_rename(self: Arc<Self>, new: Arc<dyn Dentry>, flags: vfs_defs::RenameFlags) -> SysResult<()> {
+        unimplemented!()
+    }
 }
 
 impl Drop for EfsDentry{

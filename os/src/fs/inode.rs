@@ -79,12 +79,12 @@ pub fn create_file(path:&str,type_:DiskInodeType)->SysResult<Arc<dyn Dentry>>{
     let dentry = parent.create(name.as_str(),type_).unwrap();
     if type_ == DiskInodeType::Directory{
         let current = dentry.find_or_create(".", DiskInodeType::Directory);
-        let mut res = current.link(&dentry);
+        let mut res = dentry.link(&current);
         if let Err(e) = res{
             return Err(e);
         }
         let to_parent = dentry.find_or_create("..", DiskInodeType::Directory);
-        res = to_parent.link(&parent); 
+        res = parent.link(&to_parent); 
         if let Err(e) = res{
             return Err(e);
         }

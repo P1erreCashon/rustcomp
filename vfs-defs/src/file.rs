@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize,Ordering};
 use spin::{Mutex, MutexGuard};
-use super::{Dentry,Inode,DentryState};
+use super::{Dentry,Inode,DentryState,PollEvents};
 use bitflags::*;
 use alloc::vec::Vec;
 use system_result::{SysResult,SysError};
@@ -37,11 +37,17 @@ bitflags! {
         ///Clear file and return an empty one
         const TRUNC = 0o01000;
         ///
+        const EXCL = 0o200;
+        ///
+        const NOCTTY = 0o400;
+        ///
         const APPEND = 0o02000;
         ///
         const NONBLOCK = 0o04000;
         ///
         const SYNC = 0o4010000;
+        ///
+        const RSYNC = 0o4010000;
         ///
         const ASYNC = 0o020000;
         ///
@@ -60,6 +66,8 @@ bitflags! {
         const PATH = 0o10000000;
         ///
         const DSYNC = 0o010000;
+        ///
+        const TMPFILE = 0o20200000;
     }
 }
 impl OpenFlags {
@@ -191,7 +199,8 @@ pub trait File: Send + Sync{
     fn load_dir(&self)->SysResult<()>{
         self.get_dentry().load_dir()
     }
-
+    ///
+    fn poll(&self, events: PollEvents) -> PollEvents;
 }
 
 impl dyn File{

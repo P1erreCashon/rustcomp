@@ -5,7 +5,7 @@ use super::{
 use crate::{dentry::EfsDentry, layout::EfsSuperBlock, BLOCK_SZ};
 use alloc::{rc::Weak, string::{String, ToString}, sync::Arc};
 use spin::Mutex;
-use vfs_defs::{Dentry, DentryInner, DiskInodeType, FileSystemType, FileSystemTypeInner, Inode, MountFlags, SuperBlock, SuperBlockInner};
+use vfs_defs::{Dentry, DentryInner, DiskInodeType, FileSystemType, FileSystemTypeInner, Inode, MountFlags, PollEvents, SuperBlock, SuperBlockInner};
 use system_result::{SysError, SysResult};
 use vfs_defs::{File,FileInner};
 ///An easy file system on block
@@ -215,6 +215,9 @@ impl TestFile{
 }
 
 impl File for TestFile{
+    fn poll(&self, _events: vfs_defs::PollEvents) -> vfs_defs::PollEvents {
+        PollEvents::POLLIN | PollEvents::POLLOUT
+    }
     fn readable(&self) -> bool {
         self.readable
     }

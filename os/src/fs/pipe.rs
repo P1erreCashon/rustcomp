@@ -1,13 +1,15 @@
 extern crate alloc; 
+use core::task::Poll;
+
 use crate::suspend_current_and_run_next;
 use alloc::sync::{Arc,Weak}; 
 use spin::Mutex;
 use vfs_defs::File;
 use vfs_defs::UserBuffer;
 use vfs_defs::FileInner;
-use vfs_defs::Dentry;
+use vfs_defs::{Dentry,PollEvents};
 use crate::sync::UPSafeCell;
-const RING_BUFFER_SIZE: usize = 1024;
+const RING_BUFFER_SIZE: usize = 2048;
 
 /// pipe
 pub struct Pipe {
@@ -233,5 +235,11 @@ impl File for Pipe {
                 }
             }
         }
+    }
+    fn poll(&self, _events: PollEvents) -> PollEvents {
+        if self.readable{
+            return PollEvents::POLLIN;
+        }
+        return PollEvents::POLLOUT;
     }
 }
