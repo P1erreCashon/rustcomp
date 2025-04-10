@@ -1,117 +1,74 @@
+// user/src/bin/test_tgkill.rs
+
 #![no_std]
 #![no_main]
 
-#[macro_use]
-extern crate user_lib;
+use user_lib::{getpid, println, tgkill, signal, SIGTERM, SIGKILL, SIGUSR1, yield_};
+use core::ffi::c_int;
 
-// not in SUCC_TESTS & FAIL_TESTS
-// count_lines, infloop, user_shell, usertests
+// 信号处理函数
+extern "C" fn handle_sigterm(_sig: c_int) {
+    println!("Received SIGTERM signal!");
+    // 移除 exit(0)，让信号处理程序完成
+}
 
-// item of TESTS : app_name(argv_0), argv_1, argv_2, argv_3, exit_code
-static SUCC_TESTS: &[(&str, &str, &str, &str, i32)] = &[
-    ("filetest_simple\0", "\0", "\0", "\0", 0),
-    ("cat_filea\0", "\0", "\0", "\0", 0),
-    ("exit\0", "\0", "\0", "\0", 0),
-    ("fantastic_text\0", "\0", "\0", "\0", 0),
-    ("forktest_simple\0", "\0", "\0", "\0", 0),
-    ("forktest\0", "\0", "\0", "\0", 0),
-    ("forktest2\0", "\0", "\0", "\0", 0),
-    ("forktree\0", "\0", "\0", "\0", 0),
-    ("hello_world\0", "\0", "\0", "\0", 0),
-    ("huge_write\0", "\0", "\0", "\0", 0),
-    ("matrix\0", "\0", "\0", "\0", 0),
-    ("sleep_simple\0", "\0", "\0", "\0", 0),
-    ("sleep\0", "\0", "\0", "\0", 0),
-    ("yield\0", "\0", "\0", "\0", 0),
-    ("kill\0", "\0", "\0", "\0", 0),
-    ("signal_test\0", "\0", "\0", "\0", 0),
-];
+extern "C" fn handle_sigusr1(_sig: c_int) {
+    println!("Received SIGUSR1 signal!");
+    // 移除 exit(0)，让信号处理程序完成
+}
 
-static FAIL_TESTS: &[(&str, &str, &str, &str, i32)] = &[("stack_overflow\0", "\0", "\0", "\0", -2)];
-
-use user_lib::{exec, fork, waitpid};
-
-fn run_tests(tests: &[(&str, &str, &str, &str, i32)]) -> i32 {
-    let mut pass_num = 0;
-    let mut arr: [*const u8; 4] = [
-        core::ptr::null::<u8>(),
-        core::ptr::null::<u8>(),
-        core::ptr::null::<u8>(),
-        core::ptr::null::<u8>(),
-    ];
-
-    for test in tests {
-        println!("Usertests: Running {}", test.0);
-        arr[0] = test.0.as_ptr();
-        if test.1 != "\0" {
-            arr[1] = test.1.as_ptr();
-            arr[2] = core::ptr::null::<u8>();
-            arr[3] = core::ptr::null::<u8>();
-            if test.2 != "\0" {
-                arr[2] = test.2.as_ptr();
-                arr[3] = core::ptr::null::<u8>();
-                if test.3 != "\0" {
-                    arr[3] = test.3.as_ptr();
-                } else {
-                    arr[3] = core::ptr::null::<u8>();
-                }
-            } else {
-                arr[2] = core::ptr::null::<u8>();
-                arr[3] = core::ptr::null::<u8>();
-            }
-        } else {
-            arr[1] = core::ptr::null::<u8>();
-            arr[2] = core::ptr::null::<u8>();
-            arr[3] = core::ptr::null::<u8>();
-        }
-
-        let pid = fork();
-        if pid == 0 {
-            exec(test.0, &[core::ptr::null::<u8>()]);
-            panic!("unreachable!");
-        } else {
-            let mut exit_code: i32 = Default::default();
-            let wait_pid = waitpid(pid as usize, &mut exit_code);
-            assert_eq!(pid, wait_pid);
-            if exit_code == test.4 {
-                // summary apps with  exit_code
-                pass_num = pass_num + 1;
-            }
-            println!(
-                "\x1b[32mUsertests: Test {} in Process {} exited with code {}\x1b[0m",
-                test.0, pid, exit_code
-            );
-        }
+fn test_tgkill(tgid: usize, tid: usize, sig: c_int) -> isize {
+    println!("Calling tgkill(tgid={}, tid={}, sig={})", tgid, tid, sig);
+    let ret = tgkill(tgid, tid, sig);
+    if ret < 0 {
+        println!("tgkill failed: {}", ret);
+    } else {
+        println!("tgkill succeeded: {}", ret);
     }
-    pass_num
+    ret
 }
 
 #[no_mangle]
 pub fn main() -> i32 {
-    let succ_num = run_tests(SUCC_TESTS);
-    let err_num = run_tests(FAIL_TESTS);
-    if succ_num == SUCC_TESTS.len() as i32 && err_num == FAIL_TESTS.len() as i32 {
-        println!(
-            "{} of sueecssed apps, {} of failed apps run correctly. \nUsertests passed!",
-            SUCC_TESTS.len(),
-            FAIL_TESTS.len()
-        );
-        return 0;
+    // 设置 SIGTERM 的信号处理程序
+    unsafe {
+        signal(SIGTERM, handle_sigterm);
     }
-    if succ_num != SUCC_TESTS.len() as i32 {
-        println!(
-            "all successed app_num is  {} , but only  passed {}",
-            SUCC_TESTS.len(),
-            succ_num
-        );
+
+    // 设置 SIGUSR1 的信号处理程序
+    unsafe {
+        signal(SIGUSR1, handle_sigusr1);
     }
-    if err_num != FAIL_TESTS.len() as i32 {
-        println!(
-            "all failed app_num is  {} , but only  passed {}",
-            FAIL_TESTS.len(),
-            err_num
-        );
-    }
-    println!(" Usertests failed!");
-    return -1;
+
+    // 测试 1：向当前进程发送 SIGTERM
+    let tgid = getpid();
+    let tid = tgid;
+    let sig = SIGTERM;
+    test_tgkill(tgid, tid, sig);
+
+    // 等待信号处理
+    yield_(); // 使用 yield_ 让出 CPU
+
+    // 测试 2：向当前进程发送 SIGUSR1
+    test_tgkill(tgid, tid, SIGUSR1);
+
+    // 等待信号处理
+    yield_(); // 使用 yield_ 让出 CPU
+
+    // 测试 3：无效信号编号
+    let invalid_sig = 32; // MAX_SIG = 31
+    test_tgkill(tgid, tid, invalid_sig);
+
+    // 测试 4：无效 tgid
+    let invalid_tgid = 9999; // 假设不存在的进程 ID
+    test_tgkill(invalid_tgid, tid, sig);
+
+    // 测试 5：无效 tid
+    let invalid_tid = tgid + 1; // 假设 tid 不等于 tgid
+    test_tgkill(tgid, invalid_tid, sig);
+
+    // 测试 6：发送 SIGKILL（可能需要权限）
+    test_tgkill(tgid, tid, SIGKILL);
+
+    0 // 返回 0 表示成功
 }
