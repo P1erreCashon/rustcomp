@@ -676,3 +676,51 @@ pub fn sys_sigreturn() -> isize {
         -1
     }
 }
+
+pub fn sys_clock_nanosleep(clockid: usize,flags:usize,request:*const TimeSpec,remain:*mut TimeSpec)->SysResult<isize>{
+    pub const TIMER_ABSTIME: usize = 1;
+    match clockid {
+        CLOCK_REALTIME | CLOCK_MONOTONIC => {
+            let token = current_user_token();
+            let request = translated_ref(token, request);
+            let req= request.sec * 1000000000 + request.usec; 
+            let total_time;
+            let mut rem:TimeSpec = TimeSpec{sec:0,usec:0};
+            if flags == TIMER_ABSTIME {
+                let current_time = Time::now().to_nsec();
+                // request time is absolutely
+                if req.le(&current_time) {
+                    return Ok(0);
+                }
+                total_time = req - current_time;
+            } else {
+                total_time = req;
+            };
+            let start_time = Time::now().to_nsec();
+            loop{
+                let current_time = Time::now().to_nsec();
+                if current_time - start_time < total_time{
+                    rem.sec = (total_time - current_time + start_time) / 1000000000;
+                    rem.usec = (total_time - current_time + start_time) % 1000000000;
+                    suspend_current_and_run_next();
+                }
+                else{
+                    rem.sec = 0;
+                    rem.usec = 0;
+                    break;
+                }
+            }
+            if rem.sec == 0 &&rem.usec == 0 {
+                Ok(0)
+            } else {
+                if !remain.is_null() {
+                    *translated_refmut(token, remain) = rem;
+                }
+                Err(SysError::EINTR)
+            }
+        }
+        _ => {
+            return Err(SysError::EINVAL);
+        }
+    }
+}
