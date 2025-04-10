@@ -1,0 +1,276 @@
+[33mcommit 43005ec62d6fb8744bfb0d854c617083543ebc69[m[33m ([m[1;36mHEAD -> [m[1;32mfix-fix_signal_for_busybox[m[33m)[m
+Author: returner <1486024902@qq.com>
+Date:   Thu Apr 10 16:44:25 2025 +0800
+
+    完成tgkill
+
+[33mcommit c1c994ecb60452aebc72ca3cac4484a39d62e610[m[33m ([m[1;31morigin/fix-fix_signal_for_busybox[m[33m)[m
+Merge: 93a6037 b622099
+Author: returner <1486024902@qq.com>
+Date:   Wed Apr 9 20:00:53 2025 +0800
+
+    Merge branch 'main' into fix-fix_signal_for_busybox
+
+[33mcommit b6220990743ad50a306cc66fdee43015a81717fd[m[33m ([m[1;32mmain[m[33m)[m
+Author: returner <1486024902@qq.com>
+Date:   Wed Apr 9 19:58:56 2025 +0800
+
+    优化sigaction和sigprocmask,并且增加了sigreturn系统调用
+
+[33mcommit 93a6037f3552558fe781b2b7b06b891a29a6d528[m[33m ([m[1;31morigin/dev-add_ppoll[m[33m)[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 8 17:01:24 2025 +0800
+
+    fix ppoll_def_result
+
+[33mcommit 8f6e8fdc3a08a30be6f755c904b25e70e45b19f2[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 8 17:00:49 2025 +0800
+
+    dev-add_ppoll_def
+
+[33mcommit ae8a27e6f735d19cab3416cb4dce2db697803ba3[m
+Merge: 44a98a1 77a873e
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Mon Apr 7 21:52:47 2025 +0800
+
+    Merge pull request #17 from P1erreCashon/dev-optimize_fs_for_exec_speed
+    
+    fix:扩大read_all buf大小
+
+[33mcommit 77a873eddbd7fc49d8a372855858a5a881852df5[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Mon Apr 7 21:50:34 2025 +0800
+
+    fix:扩大read_all buf大小
+
+[33mcommit 44a98a1a006dbcceb4c55ff68fe014b6f25999d5[m
+Author: returner <1486024902@qq.com>
+Date:   Mon Apr 7 21:50:13 2025 +0800
+
+    实现sys_sigaction和sys_sigprocmask
+
+[33mcommit 7ea0d42f755f96cc05de7e8003df54b1ca83e600[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Mon Apr 7 11:35:54 2025 +0800
+
+    dev-add_debug_syscallname_output
+
+[33mcommit 0c9846d6a38031881114cb38465af514017eba83[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Sun Apr 6 17:46:48 2025 +0800
+
+    fix:update user_shell
+
+[33mcommit 808b604fd84b028330d7d4d79dc5568325dd1620[m
+Merge: f594fe7 fd33824
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Sun Apr 6 17:44:12 2025 +0800
+
+    Merge pull request #16 from P1erreCashon/dev-fix_fs_syscall_for_busybox
+    
+    dev-modify syscall Result,modify fs syscalls for busybox
+
+[33mcommit fd33824c8084bc115a4f2acb4ba7a62da482787a[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Sun Apr 6 17:40:57 2025 +0800
+
+    dev-modify syscall Result,modify fs syscalls for busybox
+
+[33mcommit f594fe70e97a7ab679be562a90f5d1ffafed7dda[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Apr 2 19:24:34 2025 +0800
+
+    fix:remove extra pid2task
+
+[33mcommit 0e7a3b9cf6e925949a99047f8108b349d23877cb[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Apr 2 11:40:01 2025 +0800
+
+    fix:fix our user_shell for argc,argv
+
+[33mcommit c11374aab76942fa96e6f156da4f7c174caa3dcf[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Wed Apr 2 11:38:03 2025 +0800
+
+    fix:fix exec argc,argv,return bugs
+
+[33mcommit 4e68078ff140101023c5158c2ac2dbcd1ec1209a[m
+Merge: 792e310 5d7a1db
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 21:01:55 2025 +0800
+
+    Merge pull request #15 from P1erreCashon/dev-add_file_syscall_for_glibc
+    
+    Dev add file syscall for glibc
+
+[33mcommit 5d7a1db31e44bafbb8ba1f49b14cc25773a0252c[m
+Merge: 03901da 792e310
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 21:01:48 2025 +0800
+
+    Merge branch 'main' into dev-add_file_syscall_for_glibc
+
+[33mcommit 792e3107e593044f3a2ef45b7233c4e004b73cb9[m
+Merge: 7d9b260 821421b
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 20:56:31 2025 +0800
+
+    Merge pull request #14 from P1erreCashon/dev-add_time_process_syscall_for_glibc
+    
+    Dev add time process syscall for glibc
+
+[33mcommit 821421b7468e22999916990902c0862446ed01fe[m
+Merge: e94bc77 7d9b260
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 20:56:22 2025 +0800
+
+    Merge branch 'main' into dev-add_time_process_syscall_for_glibc
+
+[33mcommit 03901da3561940f2371af3d1924b0ca9170571f5[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 1 20:55:44 2025 +0800
+
+    dev:add_fs_syscall_for_glibc
+
+[33mcommit e94bc776964a26123b2dd23a3baee2e5608e938f[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Apr 1 20:47:41 2025 +0800
+
+    mprotect
+
+[33mcommit 56ef9868d574f4634b6bafc92c3da84b04335930[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Apr 1 19:35:33 2025 +0800
+
+    sys_info
+
+[33mcommit 7d9b2601e3ad72bdcc31382b5b18c13b92d1ca11[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 1 16:47:49 2025 +0800
+
+    fix:fix merge bud
+
+[33mcommit d858522e9fffba69d29334af7df1bb35a8e0e6b8[m
+Merge: ab855d1 2d765fc
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 16:45:06 2025 +0800
+
+    Merge pull request #13 from P1erreCashon/dev-add_pipe
+    
+    Dev add pipe
+
+[33mcommit 2d765fc1cce0d12428e83e7c93bba4678d71e2fe[m
+Merge: dcfa553 ab855d1
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 16:44:59 2025 +0800
+
+    Merge branch 'main' into dev-add_pipe
+
+[33mcommit 97bf919c72d6b4ed4bee449cbfb13b32cfd79c8e[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Apr 1 16:38:16 2025 +0800
+
+    get_random
+
+[33mcommit dcfa553a052a1c43520402520a9980e7e0b335bc[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 1 16:31:57 2025 +0800
+
+    delete qemu.log
+
+[33mcommit 8d7ccae39fbd6fcc543658d80803fe5803626a01[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 1 16:30:21 2025 +0800
+
+    dev-add syscall
+
+[33mcommit 0f9dabb1d5cbc061b12f6c502e67024a1e414784[m[33m ([m[1;31morigin/dev-add_pipe[m[33m, [m[1;32mdev-add_pipe[m[33m)[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 15:24:12 2025 +0800
+
+    实现sys_kill功能1
+
+[33mcommit eaa02d04b2fbe731bdf32400106d69cb52d282d8[m
+Author: returner <1486024902@qq.com>
+Date:   Tue Apr 1 15:43:48 2025 +0800
+
+    新增sys_kill
+
+[33mcommit 37734dc284b5f960aaea15c8a546adbebad8ed52[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Apr 1 15:30:02 2025 +0800
+
+    exit_group,clock_gettimes
+
+[33mcommit d027185fd223626bc17cf7f37d90eabfc3dde28a[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Apr 1 14:13:40 2025 +0800
+
+    setgid,setuid
+
+[33mcommit ab855d1ba6b2db4ad3f97406f27184e9489cee55[m
+Merge: 8559b41 37abc02
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Tue Apr 1 10:31:42 2025 +0800
+
+    Merge pull request #12 from P1erreCashon/fix-modify_exec_for_glibc
+    
+    add auxv and some syscall for glibc
+
+[33mcommit 37abc022723470a22f8c3a7e1dcb9304f9ac7afe[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Tue Apr 1 10:29:07 2025 +0800
+
+    add auxv and some syscall for glibc
+
+[33mcommit 8559b4114582a11eac61deb0392a100c5acb3d99[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Fri Mar 28 21:41:12 2025 +0800
+
+    fix merge
+
+[33mcommit e9a3a2ebde100ba0da645cbca3fb6540c4aad585[m
+Merge: 715303d 3c1d6a6
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Fri Mar 28 21:40:11 2025 +0800
+
+    Merge pull request #11 from P1erreCashon/dev-add_mmap_munmap
+    
+    mmap,munmap
+
+[33mcommit 3c1d6a6f354157e8a86a821b297defa5fd2e0bba[m
+Merge: 3e5dc6d 715303d
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Fri Mar 28 21:39:59 2025 +0800
+
+    Merge branch 'main' into dev-add_mmap_munmap
+
+[33mcommit 3e5dc6dbd98cd1648ff7c29f3ed21f7bb7872e2e[m
+Author: plc02 <1415227972@qq.com>
+Date:   Thu Mar 27 19:45:05 2025 +0800
+
+    mmap,munmap
+
+[33mcommit 715303d11e9f0aff03b2811890a469f49ba29248[m
+Merge: 2bef7f9 9e890db
+Author: P1erreCashon <2938806204@qq.com>
+Date:   Thu Mar 27 10:34:25 2025 +0800
+
+    Merge pull request #10 from P1erreCashon/dev-add_getdents
+    
+    add getdents,sleep,getppid   fix syscall for testcase
+
+[33mcommit 9e890db0f05fd171dddd421fa537023e484529b6[m
+Author: pierrecashon <2938806204@qq.com>
+Date:   Thu Mar 27 10:32:19 2025 +0800
+
+    add getdents,sleep,getppid   fix syscall for testcase
+
+[33mcommit 2bef7f988a261879348c90ef8f11fd2e15c12a6f[m
+Author: plc02 <1415227972@qq.com>
+Date:   Tue Mar 25 15:02:52 2025 +0800
+
+    fs_img-count->512
+
+[33mcommit 0eddf275ccd9ec8447a2c23

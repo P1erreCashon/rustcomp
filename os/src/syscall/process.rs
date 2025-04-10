@@ -6,7 +6,7 @@ use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
     self, UNAME,add_task, current_task, current_user_token, 
     exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task,
-    MAX_SIG,SigAction
+    MAX_SIG,SigAction,check_pending_signals
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -560,36 +560,37 @@ pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     }
 }
 
-
-
 pub fn sys_sigaction(
     signum: i32,
     action: *const SigAction,
     old_action: *mut SigAction,
-) -> isize {
+) -> SysResult<isize> {
     let token = current_user_token();
-    let task = current_task().unwrap();
+    let task = current_task().ok_or(SysError::ESRCH)?;
+
     let mut inner = task.inner_exclusive_access();
 
     // 检查信号编号是否合法
     if signum <= 0 || signum as usize > MAX_SIG {
-        
-        return -1;
+        log_info!("[kernel] sys_sigaction: Invalid signal number: {}", signum);
+        return Err(SysError::EINVAL);
     }
 
     // 将 signum 转换为 SignalFlags
     let flag = match SignalFlags::from_bits(1 << signum) {
         Some(flag) => flag,
         None => {
-            
+            log_info!("[kernel] sys_sigaction: Signal {} not in SignalFlags, but proceeding", signum);
             SignalFlags::empty()
         }
     };
 
     // 检查参数是否合法
     if check_sigaction_error(flag) {
-        
-        return -1;
+        log_info!(
+            "[kernel] sys_sigaction: Invalid parameters for signal: {:?}", flag
+        );
+        return Err(SysError::EINVAL);
     }
 
     // 保存旧的信号处理函数
@@ -603,7 +604,11 @@ pub fn sys_sigaction(
         inner.signal_actions.table[signum as usize] = *translated_ref(token, action);
     }
 
-    0
+    log_info!(
+        "[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",
+        signum, inner.signal_actions.table[signum as usize].handler
+    );
+    Ok(0)
 }
 
 fn check_sigaction_error(signal: SignalFlags) -> bool {
@@ -616,63 +621,137 @@ const SIG_BLOCK: i32 = 0;   // 将 set 中的信号添加到掩码
 const SIG_UNBLOCK: i32 = 1; // 从掩码中移除 set 中的信号
 const SIG_SETMASK: i32 = 2; // 将掩码设置为 set
 
-pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFlags) -> isize {
+pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFlags) -> SysResult<isize> {
     let token = current_user_token();
-    if let Some(task) = current_task() {
-        let mut inner = task.inner_exclusive_access();
-        let old_mask = inner.signal_mask;
+    let task = current_task().ok_or(SysError::ESRCH)?;
+    let mut inner = task.inner_exclusive_access();
+    let old_mask = inner.signal_mask;
 
-        // 保存旧的信号掩码
-        if !oldset.is_null() {
-            *translated_refmut(token, oldset) = old_mask;
-        }
+    // 保存旧的信号掩码
+    if !oldset.is_null() {
+        *translated_refmut(token, oldset) = old_mask;
+    }
 
-        // 如果 set 不为空，更新信号掩码
-        if !set.is_null() {
-            let new_set = *translated_ref(token, set);
-            match how {
-                SIG_BLOCK => {
-                    inner.signal_mask |= new_set;
-                    
-                }
-                SIG_UNBLOCK => {
-                    inner.signal_mask &= !new_set;
-                    
-                }
-                SIG_SETMASK => {
-                    inner.signal_mask = new_set;
-                    
-                }
-                _ => {
-                    
-                    return -1;
-                }
+    // 如果 set 不为空，更新信号掩码
+    if !set.is_null() {
+        let new_set = *translated_ref(token, set);
+        match how {
+            SIG_BLOCK => {
+                inner.signal_mask |= new_set;
+                log_info!(
+                    "[kernel] sys_sigprocmask: Block signals, new mask: {:#x}",
+                    inner.signal_mask.bits()
+                );
+            }
+            SIG_UNBLOCK => {
+                inner.signal_mask &= !new_set;
+                log_info!(
+                    "[kernel] sys_sigprocmask: Unblock signals, new mask: {:#x}",
+                    inner.signal_mask.bits()
+                );
+            }
+            SIG_SETMASK => {
+                inner.signal_mask = new_set;
+                log_info!(
+                    "[kernel] sys_sigprocmask: Set signal mask to {:#x}",
+                    inner.signal_mask.bits()
+                );
+            }
+            _ => {
+                log_info!("[kernel] sys_sigprocmask: Invalid how value: {}", how);
+                return Err(SysError::EINVAL);
             }
         }
-
-        0
-    } else {
-        
-        -1
     }
+
+    Ok(0)
+}
+
+pub fn sys_sigreturn() -> SysResult<isize> {
+    let task = current_task().unwrap();
+    let mut task_inner = task.inner_exclusive_access();
+
+    // 恢复 trap 上下文
+    if let Some(backup) = task_inner.trap_ctx_backup.take() {
+        let sepc = backup.sepc;
+        *task_inner.get_trap_cx() = backup;
+        println!("[kernel] sys_sigreturn: Restoring trap context, sepc={:#x}", sepc);
+    } else {
+        println!("[kernel] sys_sigreturn: No trap context backup found!");
+        return Err(SysError::EINVAL);
+    }
+
+    // 恢复信号掩码
+    task_inner.signal_mask = task_inner.signal_mask_backup;
+
+    // 重置 handling_sig
+    task_inner.handling_sig = -1;
+    println!("[kernel] sys_sigreturn: handling_sig reset to -1");
+
+    drop(task_inner);
+    drop(task);
+
+    // 检查挂起的信号
+    check_pending_signals();
+
+    Ok(0)
 }
 pub fn sys_gettid()->SysResult<isize>{
     Ok(current_task().unwrap().pid.0 as isize)
 }
-pub fn sys_sigreturn() -> isize {
-    if let Some(task) = current_task() {
-        let mut task_inner = task.inner_exclusive_access();
-        if let Some(backup) = task_inner.trap_ctx_backup.take() {
-            task_inner.handling_sig = -1;
-            task_inner.trap_cx = backup;
-            // 返回信号处理程序的返回值（通常为 0）
-            0
-        } else {
+/// 实现 TGKILL 系统调用
+/// tgid: 线程组 ID（通常是进程 ID）
+/// tid: 线程 ID
+/// sig: 要发送的信号编号
+/// 实现 TGKILL 系统调用
+/// tgid: 线程组 ID（通常是进程 ID）
+/// tid: 线程 ID
+/// sig: 要发送的信号编号
+pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
+    println!("[kernel] sys_tgkill: tgid={}, tid={}, sig={}", tgid, tid, sig);
 
-            -1
-        }
+    // 检查信号编号是否合法
+    if sig < 0 || sig as usize > MAX_SIG {
+        println!("[kernel] sys_tgkill: Invalid signal number: {}", sig);
+        return Err(SysError::EINVAL);
+    }
+
+    // 获取目标任务
+    let task = if tgid == -1 {
+        current_task().unwrap()
     } else {
-        
-        -1
+        match pid2task(tgid as usize) {
+            Some(task) => task,
+            None => {
+                println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
+                return Err(SysError::ESRCH);
+            }
+        }
+    };
+
+    // 检查 tid 是否与 tgid 匹配（简化实现，假设 tid 必须等于 tgid）
+    if tid != tgid {
+        println!("[kernel] sys_tgkill: Thread {} not found in thread group {}", tid, tgid);
+        return Err(SysError::ESRCH);
+    }
+
+    // 检查权限（当前进程是否可以向目标进程发送信号）
+    let current_pid = current_task().unwrap().getpid();
+    if tgid as usize != current_pid {
+        println!("[kernel] sys_tgkill: Permission denied to send signal {} to tgid={}", sig, tgid);
+        return Err(SysError::EPERM);
+    }
+
+    // 将信号添加到目标任务的信号集
+    if let Some(flag) = SignalFlags::from_bits(1 << sig) {
+        println!("[kernel] sys_tgkill: Sent signal {} to tgid={}, tid={}", sig, tgid, tid);
+        let mut inner = task.inner_exclusive_access();
+        inner.signals |= flag;
+        inner.signal_queue.push(sig as usize);
+        drop(inner);
+        Ok(0)
+    } else {
+        println!("[kernel] sys_tgkill: Invalid signal {}", sig);
+        Err(SysError::EINVAL)
     }
 }

@@ -51,6 +51,8 @@ pub use processor::{
 pub use signal::{SignalFlags, SigAction};
 pub use aux::*;
 
+
+
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 pub const MAX_SIG: usize = 31;
 
@@ -146,66 +148,91 @@ pub fn handle_signals() {
 }
 
 /// 检查当前任务是否有未处理的信号，并调用信号处理函数
-fn check_pending_signals() {
+pub fn check_pending_signals() {
     let task = match current_task() {
         Some(task) => task,
         None => return,
     };
-    for sig in 1..=MAX_SIG {
-        let task_inner = task.inner_exclusive_access();
-        let signal = match SignalFlags::from_bits(1 << sig) {
-            Some(signal) => signal,
-            None => {
-                println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, but proceeding", sig);
-                SignalFlags::empty()
-            }
-        };
-        // 检查信号是否被屏蔽
-        if task_inner.signals.contains(signal) {
-            println!(
-                "[kernel] Signal {} found in task.signals, mask: {:?}, handling_sig: {}",
-                sig, task_inner.signal_mask, task_inner.handling_sig
-            );
-            if task_inner.signal_mask.contains(signal) {
-                println!("[kernel] Signal {} is masked by signal_mask", sig);
-                continue;
-            }
-            let mut masked = true;
-            let handling_sig = task_inner.handling_sig;
-            if handling_sig == -1 {
-                masked = false;
-            } else {
-                let handling_sig = handling_sig as usize;
-                if !task_inner.signal_actions.table[handling_sig]
-                    .mask
-                    .contains(signal)
-                {
-                    masked = false;
-                }
-            }
-            if masked {
-                println!("[kernel] Signal {} is masked by handling_sig {}", sig, handling_sig);
-                continue;
-            }
-            println!("[kernel] Signal {} is not masked, proceeding to handle", sig);
-            drop(task_inner);
-            drop(task);
-            // 根据信号类型决定处理方式
-            if signal == SignalFlags::SIGKILL
-                || signal == SignalFlags::SIGSTOP
-                || signal == SignalFlags::SIGCONT
-            {
-                call_kernel_signal_handler(sig, signal);
-            } else {
-                call_user_signal_handler(sig, signal);
-            }
+
+    let mut task_inner = task.inner_exclusive_access();
+
+    // 如果当前正在处理一个信号，延迟处理其他信号
+    if task_inner.handling_sig != -1 {
+        println!(
+            "[kernel] Signal handling in progress (sig={}), deferring other signals",
+            task_inner.handling_sig
+        );
+        return;
+    }
+
+    if task_inner.signal_queue.is_empty() {
+        return;
+    }
+
+    let sig = task_inner.signal_queue[0];
+    let signal = match SignalFlags::from_bits(1 << sig) {
+        Some(signal) => signal,
+        None => {
+            println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, removing", sig);
+            task_inner.signal_queue.remove(0);
             return;
         }
+    };
+
+    if !task_inner.signals.contains(signal) {
+        println!("[kernel] Signal {} not in task.signals, removing from queue", sig);
+        task_inner.signal_queue.remove(0);
+        return;
+    }
+
+    println!(
+        "[kernel] Signal {} found in task.signals, mask: {:?}, handling_sig: {}",
+        sig, task_inner.signal_mask, task_inner.handling_sig
+    );
+
+    if task_inner.signal_mask.contains(signal) {
+        // 移除日志打印
+        // println!("[kernel] Signal {} is masked by signal_mask", sig);
+        return;
+    }
+
+    let mut masked = true;
+    let handling_sig = task_inner.handling_sig;
+    if handling_sig == -1 {
+        masked = false;
+    } else {
+        let handling_sig = handling_sig as usize;
+        if !task_inner.signal_actions.table[handling_sig]
+            .mask
+            .contains(signal)
+        {
+            masked = false;
+        }
+    }
+    if masked {
+        println!("[kernel] Signal {} is masked by handling_sig {}", sig, handling_sig);
+        return;
+    }
+
+    println!("[kernel] Signal {} is not masked, proceeding to handle", sig);
+
+    task_inner.signal_queue.remove(0);
+
+    drop(task_inner);
+    drop(task);
+
+    if signal == SignalFlags::SIGKILL
+        || signal == SignalFlags::SIGSTOP
+        || signal == SignalFlags::SIGCONT
+    {
+        call_kernel_signal_handler(sig, signal);
+    } else {
+        call_user_signal_handler(sig, signal);
     }
 }
 
 /// 处理内核态信号
-fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
+pub fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     match signal {
@@ -224,7 +251,6 @@ fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
             println!("[kernel] Task {} killed by SIGKILL", task.getpid());
         }
         _ => {
-            // 其他内核信号：终止进程
             task_inner.killed = true;
             println!("[kernel] Task {} terminated by signal {}", task.getpid(), sig);
         }
@@ -232,63 +258,37 @@ fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
 }
 
 /// 处理用户态信号
-fn call_user_signal_handler(sig: usize, signal: SignalFlags) {
+pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
 
     let handler = task_inner.signal_actions.table[sig].handler;
-    if handler != 0 {
-        // 用户定义的信号处理函数
-        task_inner.handling_sig = sig as isize;
-        task_inner.signals.remove(signal);
-
-        // 备份 trap 上下文
-        let trap_ctx = task_inner.get_trap_cx();
-        task_inner.trap_ctx_backup = Some(trap_ctx.clone());
-
-        // 修改 trap 上下文以调用信号处理函数
-        trap_ctx.sepc = handler;
-        trap_ctx.x[10] = sig; // a0 = 信号编号
-        println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
-    } else {
-        // 默认行为
-        match signal {
-            SignalFlags::SIGCHLD => {
-                // SIGCHLD 默认忽略
-                task_inner.signals.remove(signal);
-                println!("[kernel] Signal {} (SIGCHLD) ignored by default", sig);
-            }
-            SignalFlags::SIGCONT => {
-                // SIGCONT 默认继续进程（已在 call_kernel_signal_handler 中处理）
-                task_inner.signals.remove(signal);
-                println!("[kernel] Signal {} (SIGCONT) handled by kernel", sig);
-            }
-            SignalFlags::SIGWINCH => {
-                // SIGWINCH 默认忽略
-                task_inner.signals.remove(signal);
-                println!("[kernel] Signal {} (SIGWINCH) ignored by default", sig);
-            }
-            _ => {
-                // 其他信号默认终止进程
-                task_inner.killed = true;
-                println!("[kernel] Task {} terminated by signal {} (default action)", task.getpid(), sig);
-            }
-        }
+    if handler == 0 {
+        println!("[kernel] No handler for signal {}, ignoring", sig);
+        return;
     }
+
+    // 保存当前的 trap 上下文
+    task_inner.trap_ctx_backup = Some(task_inner.get_trap_cx().clone());
+    task_inner.signal_mask_backup = task_inner.signal_mask;
+
+    // 设置信号掩码
+    task_inner.signal_mask = task_inner.signal_actions.table[sig].mask;
+
+    task_inner.handling_sig = sig as isize;
+
+    let trap_ctx = task_inner.get_trap_cx();
+    trap_ctx.sepc = handler;
+    trap_ctx.x[10] = (sig as i32) as usize; // 修正：将 sig 转换为 i32 后再转换为 usize
+
+    println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
 }
 
 pub fn check_signals_error_of_current() -> Option<(isize, &'static str)> {
-    let task = match current_task() {
-        Some(task) => task,
-        None => return None,
-    };
-    let inner = task.inner_exclusive_access();
-    if inner.killed {
-        if let Some((code, msg)) = inner.signals.check_error() {
-            return Some((code as isize, msg));
-        }
-        Some((-1, "Process killed by signal"))
-    } else {
-        None
+    let task = current_task().unwrap();
+    let task_inner = task.inner_exclusive_access();
+    if task_inner.killed {
+        return Some((-1, "Killed"));
     }
+    None
 }
