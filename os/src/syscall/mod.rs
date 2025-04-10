@@ -44,6 +44,7 @@ const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_CLOCK_GETTIME: usize =113;
+const SYSCALL_CLOCK_NANOSLEEP: usize =115;
 const SYSCALL_SYSLOG: usize = 116;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
@@ -287,6 +288,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         }
         SYSCALL_CLOCK_GETTIME => {
             result = sys_clock_gettime(args[0], args[1] as *mut TimeSpec);
+        }
+        SYSCALL_CLOCK_NANOSLEEP => {
+            result = sys_clock_nanosleep(args[0],args[1], args[2] as *const TimeSpec,args[3] as *mut TimeSpec);
         }
         SYSCALL_RENAMEAT2 => {
             result = sys_renameat2(args[0] as isize, args[1] as *const u8, args[2] as isize,args[3] as *const u8,args[4]);
@@ -534,6 +538,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_RENAMEAT2 => {
             ret.push_str("sys_renameat2");
+        }
+        SYSCALL_CLOCK_NANOSLEEP => {
+            ret.push_str("sys_clock_nanosleep");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
