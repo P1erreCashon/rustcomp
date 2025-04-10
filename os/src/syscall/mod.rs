@@ -49,6 +49,7 @@ const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
 const SYSCALL_SETUID: usize =146;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_TGKILL: usize = 131;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
 const SYSCALL_SIGRETURN: usize = 139;
@@ -86,6 +87,7 @@ use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
 const MODULE_LEVEL:log::Level = log::Level::Debug;
+use crate::task::check_pending_signals;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
@@ -140,13 +142,13 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_kill(args[0], args[1] as u32);
         },
         SYSCALL_SIGACTION => {
-            result = Ok(sys_sigaction(args[0] as i32, args[1] as *const _, args[2] as *mut _));
+            result = sys_sigaction(args[0] as i32, args[1] as *const _, args[2] as *mut _);
         }
         SYSCALL_SIGPROCMASK => {
-            result = Ok(sys_sigprocmask(args[0] as i32, args[1] as *const _, args[2] as *mut _));
+            result = sys_sigprocmask(args[0] as i32, args[1] as *const _, args[2] as *mut _);
         }
         SYSCALL_SIGRETURN => {
-            result = Ok(sys_sigreturn());
+            result = sys_sigreturn();
         }
         SYSCALL_GET_TIME => {
             result = sys_get_time(args[0] as *mut TimeSpec);
@@ -290,12 +292,17 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SYSLOG => {
             result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
         }
+        SYSCALL_TGKILL => {
+            result = sys_tgkill(args[0] as isize, args[1] as isize, args[2] as i32);
+        },
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     // 在系统调用返回前检查信号
+    check_pending_signals();
+    
     if let Some((code, msg)) = check_signals_error_of_current() {
         println!("Process terminated due to signal: {}", msg);
         exit_current_and_run_next(code as i32);
@@ -508,6 +515,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         SYSCALL_MPROTECT => {
             ret.push_str("sys_mprotect");
         }
+        SYSCALL_TGKILL => {
+            ret.push_str("sys_tgkill");
+        },
         SYSCALL_PPOLL => {
             ret.push_str("sys_ppoll");
         }
