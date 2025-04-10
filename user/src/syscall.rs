@@ -2,6 +2,8 @@ use core::arch::asm;
 use crate::{Tms, Utsname};
 use crate::SigAction;
 use crate::SignalFlags;
+use crate::TimeSpec;
+
 
 const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_GETCWD: usize =17;
@@ -16,8 +18,10 @@ const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_TGKILL: usize = 131;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
 const SYSCALL_SIGRETURN: usize = 139;
@@ -98,12 +102,16 @@ pub fn sys_sigaction(signum: i32, act: *const SigAction, oldact: *mut SigAction)
     syscall(SYSCALL_SIGACTION, [signum as usize, act as usize, oldact as usize])
 }
 
-pub fn sys_sigprocmask(how: i32, set: *const SignalFlags, oldset: *mut SignalFlags) -> isize {
+pub fn sys_sigprocmask(how: i32, set: *const u32, oldset: *mut u32) -> isize {
     syscall(SYSCALL_SIGPROCMASK, [how as usize, set as usize, oldset as usize])
 }
 
 pub fn sys_sigreturn() -> isize {
     syscall(SYSCALL_SIGRETURN, [0, 0, 0])
+}
+
+pub fn sys_tgkill(tgid: usize, tid: usize, sig: i32) -> isize {
+    syscall(SYSCALL_TGKILL, [tgid, tid, sig as usize])
 }
 
 pub fn sys_get_time() -> isize {
@@ -158,4 +166,8 @@ pub fn sys_uname(mes: *mut Utsname) -> isize {
 
 pub fn sys_random(buf: *mut u8, len: usize, flags: usize) -> isize {
     syscall(SYSCALL_GET_RANDOM, [buf as usize, len, flags])
+}
+
+pub fn sys_nanosleep(req: *const TimeSpec, rem: *mut TimeSpec) -> isize {
+    syscall(SYSCALL_NANOSLEEP, [req as usize, rem as usize, 0])
 }

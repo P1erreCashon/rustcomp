@@ -124,9 +124,11 @@ pub struct TaskControlBlockInner {
     pub fd_table: FdTable,//Vec<Option<Arc<dyn File + Send + Sync>>>,
    // pub fd_table_rlimit:RLimit,
     pub signals: SignalFlags, // 新增：未处理的信号
+    pub signal_queue: Vec<usize>, // 新增：信号队列，按发送顺序存储
     pub killed: bool,         // 新增：是否被信号终止
     pub frozen: bool,
     pub signal_mask: SignalFlags,      // 信号掩码
+    pub signal_mask_backup: SignalFlags, // 保存原始信号掩码
     pub signal_actions: SignalActions, // 信号处理函数表
     pub handling_sig: isize,           // 当前正在处理的信号
     pub trap_ctx_backup: Option<TrapFrame>, // 添加 trap_ctx_backup 字段
@@ -210,6 +212,7 @@ impl TaskControlBlock {
                     killed: false,
                     frozen: false,
                     signal_mask: SignalFlags::empty(),
+                    signal_mask_backup: SignalFlags::empty(),
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
                     heap_top: heap_top, //
@@ -220,6 +223,7 @@ impl TaskControlBlock {
                     //mmap_top: USER_MMAP_TOP,
                     tidaddress:TidAddress::new(),
                     trap_ctx_backup: None, // 初始化 trap_ctx_backup
+                    signal_queue: Vec::new(),
                     }
                 ),
         };
@@ -393,6 +397,7 @@ impl TaskControlBlock {
                     killed: false,
                     frozen: false,
                     signal_mask: SignalFlags::empty(),
+                    signal_mask_backup: SignalFlags::empty(),
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
                     heap_top: parent_inner.heap_top,
@@ -403,6 +408,7 @@ impl TaskControlBlock {
                     //mmap_top: parent_inner.mmap_top,
                     tidaddress:TidAddress::new(),
                     trap_ctx_backup: None, // 初始化 trap_ctx_backup
+                    signal_queue: Vec::new(),
                 })
             ,
         });
