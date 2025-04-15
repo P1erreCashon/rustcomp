@@ -17,7 +17,7 @@ use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 use config::{ USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
-use crate::mm::{MapPermission, MapArea, from_prot};
+use crate::mm::{MapPermission, MapArea, from_prot, VPNRange};
 use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
@@ -506,27 +506,36 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
     }
 }
 
-pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> {
-    if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
+pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
+    //log_debug!("mprotect");
+    if addr.addr() / PAGE_SIZE * PAGE_SIZE != addr.addr() {
         return Err(SysError::EINVAL);
     }
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
     //addr-addr+len-1
+    let start_vpn: VirtPage = addr.floor().into();
+    let end_vpn: VirtPage = VirtAddr::new(addr.addr()+len-1).ceil().into();
+    let split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
+
     let perm = from_prot(prot); //提取权限
+    let mut op=-1;
+    let mut new_area=None;
     // 找到包含addr的区域
     let mut is_find = false;
     for ele in &mut inner.memory_set.mmap_area {
-        if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-            ele.map_perm = perm;
+        if ele.vpn_range.l <= start_vpn && ele.vpn_range.r >= start_vpn {
+            //ele.map_perm = perm;
+            new_area = ele.split_vpn_range(split_range, perm, &mut op);
             is_find = true;
             break;
         }
     }
     if !is_find {
         for ele in &mut inner.memory_set.heap_area {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
+            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r < start_vpn {
+                //ele.map_perm = perm;
+                new_area = ele.split_vpn_range(split_range, perm, &mut op);
                 is_find = true;
                 break;
             }
@@ -534,12 +543,20 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> 
     }
     if !is_find {
         for ele in &mut inner.memory_set.areas {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
+            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r < start_vpn {
+                //ele.map_perm = perm;
+                new_area = ele.split_vpn_range(split_range, perm, &mut op);
                 break;
             }
         }
-    } 
+    }
+
+    match new_area {
+        Some(new_area) => {
+            inner.memory_set.mmap_area.push(new_area);
+        }
+        None => {}
+    }
     Ok(0)
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {

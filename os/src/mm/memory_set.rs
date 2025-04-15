@@ -1,5 +1,5 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
-use super::{frame_alloc, FrameTracker};
+use super::{frame_alloc, vpn_range, FrameTracker};
 //use super::{PTEFlags, PageTable, PageTableEntry};
 //use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::vpn_range::VPNRange;
@@ -418,6 +418,38 @@ impl MapArea {
             }
             // current_vpn.step();
             current_vpn = current_vpn + 1;
+        }
+    }
+
+    // 返回分裂出的area,只做vpn_range分裂，不分裂实际物理页，新的area不持有物理页对象
+    pub fn split_vpn_range(&mut self, range: VPNRange, mp: MapPermission, op: &mut isize) -> Option<Self> {
+        // 恰好是一个块
+        if range.l == self.vpn_range.l && range.r == self.vpn_range.r {
+            self.map_perm = mp;
+            *op = 0;
+            return None;
+        }
+        else {
+            if range.l == self.vpn_range.l && range.r < self.vpn_range.r {
+                *op = 1;
+                let new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.r.to_addr().into(), self.map_type, self.map_perm);
+                self.vpn_range.r = range.r;
+                self.map_perm = mp;
+                return Some(new_area);
+            }
+            else if range.l > self.vpn_range.l && range.r == self.vpn_range.r {
+                *op = 2;
+                let new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                self.vpn_range.l = range.l;
+                self.map_perm = mp;
+                return Some(new_area);
+            }
+            else {
+                *op = 3;
+                //做整块处理
+                self.map_perm = mp;
+                return None;
+            }
         }
     }
 }
