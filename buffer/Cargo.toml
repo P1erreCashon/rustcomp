@@ -7,3 +7,4 @@ edition = "2021"
 spin = "0.7.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 device = { path = "../device" }
+lru = "0.12"

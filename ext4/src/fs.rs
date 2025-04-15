@@ -42,7 +42,7 @@ impl FileSystemType for Ext4ImplFsType{
         else{
             path = parent.as_ref().unwrap().path()+name;
             abs_mount_path = path.as_str();
-            root_dentry = Arc::new(Ext4Dentry::new(DentryInner::new(name.to_string(), superblock.clone(),Some(Arc::downgrade(&parent.unwrap())))));
+            root_dentry = Arc::new(Ext4Dentry::new(DentryInner::new(name.to_string(), superblock.clone(),Some(parent.unwrap()))));
         }
         log_debug!("abs_m_path:{}",abs_mount_path);
         root_dentry.set_inode(root_inode);

@@ -15,7 +15,13 @@ impl EfsDentry{
     }
 }
 
-impl Dentry for EfsDentry{    
+impl Dentry for EfsDentry{  
+    fn concrete_getchild(self:Arc<Self>, name: &str) -> Option<Arc<dyn Dentry>> {
+        unimplemented!()
+    }
+    fn self_arc(self:Arc<Self>) -> Arc<dyn Dentry> {
+        unimplemented!()
+    }  /* 
     fn ls(self:Arc<Self>)->alloc::vec::Vec<String> {
         let inode = self.get_inode().unwrap().downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR).unwrap();
         let child_dir_names = inode.ls();
@@ -25,12 +31,12 @@ impl Dentry for EfsDentry{
             self.add_child(sub_child_dir);
         }
         return child_dir_names;
-    }
+    }*/
     fn get_inner(&self) -> &DentryInner {
         &self.inner
     }
     fn concrete_create(self:Arc<Self>, name: &str, _type:DiskInodeType) -> SysResult<Arc<dyn Dentry>> {
-        let child_dir = self.get_child(name).unwrap();
+        let child_dir = self.clone().get_child(name).unwrap();
         let inode = self.get_inode()?.downcast_arc::<EfsInode>().map_err(|_| SysError::ENOTDIR)?;
         if inode.find(name).is_some(){
             return Err(SysError::EEXIST);
@@ -67,7 +73,7 @@ impl Dentry for EfsDentry{
 
     fn concrete_new_child(self:Arc<Self>, _name: &str) -> Arc<dyn Dentry> {
         let dyn_dentry:Arc<dyn Dentry> = self.clone();
-        let child_dir = Arc::new(EfsDentry::new(DentryInner::new(String::from(_name), self.get_superblock(),Some(Arc::downgrade(&dyn_dentry)))));
+        let child_dir = Arc::new(EfsDentry::new(DentryInner::new(String::from(_name), self.get_superblock(),Some(dyn_dentry))));
         return child_dir;
     }
     fn concrete_link(self: Arc<Self>, new: &Arc<dyn Dentry>) -> SysResult<()> {

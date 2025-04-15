@@ -183,7 +183,7 @@ impl FileSystemType for EfsFsType{
             root_dentry = Arc::new(EfsDentry::new(DentryInner::new(name.to_string(), superblock.clone(), None)));
         }
         else{
-            root_dentry = Arc::new(EfsDentry::new(DentryInner::new(name.to_string(), superblock.clone(), Some(Arc::downgrade(&parent.unwrap())))));
+            root_dentry = Arc::new(EfsDentry::new(DentryInner::new(name.to_string(), superblock.clone(), Some(parent.unwrap()))));
         }
         root_inode.set_type(DiskInodeType::Directory);
         root_dentry.set_inode(root_inode);

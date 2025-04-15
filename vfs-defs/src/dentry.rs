@@ -4,11 +4,11 @@ use alloc::{
     string::{String, ToString},
     sync::{Arc, Weak},
 };
-use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock};
+use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock,intenal_to_leaf,dcache_lookup,dcache_drop};
 use spin::{Mutex,MutexGuard};
 use system_result::{SysError,SysResult};
 use super::{File,OpenFlags,RenameFlags};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 ///
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DentryState {
@@ -27,18 +27,18 @@ pub struct DentryInner {
     ///
     pub superblock: Weak<dyn SuperBlock>,
     ///
-    pub father: Option<Weak<dyn Dentry>>,
+    pub father: Option<Arc<dyn Dentry>>,
     ///
     pub inode: Mutex<Option<Arc<dyn Inode>>>,
     ///
-    pub children: Mutex<BTreeMap<String, Arc<dyn Dentry>>>,
+    pub children: Mutex<BTreeMap<String, Weak<dyn Dentry>>>,
     ///
     pub state: Mutex<DentryState>,
 }
 
 impl DentryInner{
     ///
-    pub fn new(name:String,superblock:Arc<dyn SuperBlock>,father: Option<Weak<dyn Dentry>>)->Self{
+    pub fn new(name:String,superblock:Arc<dyn SuperBlock>,father: Option<Arc<dyn Dentry>>)->Self{
         Self{
             name,
             superblock:Arc::downgrade(&superblock),
@@ -70,6 +70,8 @@ pub trait Dentry: Send + Sync {
     fn concrete_unlink(self: Arc<Self>, old: &Arc<dyn Dentry>) -> SysResult<()>;
     ///    
     fn concrete_rename(self: Arc<Self>, new: Arc<dyn Dentry>, flags: RenameFlags) -> SysResult<()>;
+    ///
+    fn concrete_getchild(self:Arc<Self>, name: &str) -> Option<Arc<dyn Dentry>>;
     /// get a clone of self inode
     fn get_inode(&self) -> SysResult<Arc<dyn Inode>> {
         self.get_inner()
@@ -98,17 +100,37 @@ pub trait Dentry: Send + Sync {
     fn get_name_str(&self) -> &str {
         &self.get_inner().name
     }
+    ///    
+    fn self_arc(self:Arc<Self>) -> Arc<dyn Dentry>;
     ///
-    fn get_child(&self, name: &str) -> Option<Arc<dyn Dentry>> {
-        self.get_inner().children.lock().get(name).cloned()
-
+    fn get_child(self:Arc<Self>, name: &str) -> Option<Arc<dyn Dentry>> {
+        let mut children = self.get_inner().children.lock();
+        if let Some(child) = children.get(name){
+            return Some(child).as_ref().map(|p| p.upgrade().unwrap());
+        }
+        if let Some(child) = dcache_lookup(Some(&self.clone().self_arc()), name){
+            children.insert(child.get_name_string(), Arc::downgrade(&child));
+            drop(children);
+            dcache_drop();
+            return Some(child);
+        }
+        
+        if let Some(child) = self.clone().concrete_getchild(name){
+            children.insert(child.get_name_string(), Arc::downgrade(&child));            
+            drop(children);
+            dcache_drop();
+            return Some(child);
+        }
+        drop(children);
+        dcache_drop();
+        return None;
     }
     /// Insert a child dentry to this dentry.
-    fn add_child(&self, child: Arc<dyn Dentry>) -> Option<Arc<dyn Dentry>> {
+    fn add_child(&self, child: Arc<dyn Dentry>) -> Option<Weak<dyn Dentry>> {
         self.get_inner()
             .children
             .lock()
-            .insert(child.get_name_string(), child)
+            .insert(child.get_name_string(), Arc::downgrade(&child))
     }
     ///
     fn get_state(&self)->MutexGuard<DentryState>{
@@ -116,7 +138,7 @@ pub trait Dentry: Send + Sync {
     }
     ///
     fn get_father(&self) -> Option<Arc<dyn Dentry>> {
-        self.get_inner().father.as_ref().map(|p| p.upgrade().unwrap())
+        self.get_inner().father.clone()
     }
     /// Get the path of this dentry.
     fn path(&self) -> String {
@@ -141,10 +163,21 @@ pub trait Dentry: Send + Sync {
     fn is_file(&self)->bool{
         self.get_inode().unwrap().is_file()
     } 
+    /* 
     ///
-    fn ls(self:Arc<Self>)->Vec<String>;
+    fn ls(self:Arc<Self>)->Vec<String>;*/
     ///
     fn load_dir(self:Arc<Self>)->SysResult<()>;
+    ///
+    fn on_drop(&self){
+        if let Some(father) = self.get_father(){
+            let mut children = father.get_inner().children.lock();
+            children.remove(self.get_name_str());
+            if children.len() == 0{
+                intenal_to_leaf(&father);
+            }
+        }
+    }
     
 }
 
@@ -158,7 +191,7 @@ impl dyn Dentry{
         if !self.get_inode()?.is_dir() {
             return Err(SysError::ENOTDIR);
         }
-        if let Some(child) = self.get_child(name){
+        if let Some(child) = self.clone().get_child(name){
             let mut state = child.get_state();
             if *state == DentryState::Invalid {
                 self.clone().concrete_lookup(name)?;
@@ -182,7 +215,7 @@ impl dyn Dentry{
     }
     /// Find dentry under current dentry by name,if not found,create it (without inode) ,get a clone of dentry's Arc
     pub fn find_or_create(self: &Arc<Self>, name: &str,_type:DiskInodeType) -> Arc<dyn Dentry> {
-        self.get_child(name).unwrap_or_else(|| {
+        self.clone().get_child(name).unwrap_or_else(|| {
             let new_dentry = self.new_child(name);
             self.add_child(new_dentry.clone());
             let mut state = self.get_state();

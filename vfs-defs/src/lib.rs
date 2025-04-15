@@ -7,6 +7,7 @@ mod dentry;
 mod superblock;
 mod filesystemtype;
 mod file;
+mod dentry_cache;
 #[macro_use]
 extern crate logger;
 pub use filesystemtype::{FileSystemType,FileSystemTypeInner,MountFlags};
@@ -14,7 +15,7 @@ pub use dentry::{Dentry,DentryInner,DentryState};
 pub use superblock::{SuperBlock,SuperBlockInner};
 pub use inode::{Inode,InodeMeta,InodeMetaInner,DiskInodeType,InodeState};
 pub use file::{File,FileInner,OpenFlags,UserBuffer,UserBufferIterator,SeekFlags};
-
+pub use dentry_cache::{DENTRY_CACHE_MANAGER,alloc_dentry,intenal_to_leaf,dcache_lookup,dcache_drop};
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 #[repr(C)]
 ///

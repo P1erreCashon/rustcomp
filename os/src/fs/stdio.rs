@@ -181,14 +181,21 @@ impl Dentry for StdioDentry{
     fn load_dir(self:Arc<Self>)->SysResult<()> {
         Err(SysError::ENOTDIR)
     }
+    /* 
     fn ls(self:Arc<Self>)->Vec<String> {
         Vec::new()
-    }
+    }*/
     fn concrete_new_child(self: Arc<Self>, _name: &str) -> Arc<dyn Dentry> {
         unimplemented!()
     }
     fn concrete_rename(self: Arc<Self>, _new: Arc<dyn Dentry>, _flags: RenameFlags) -> SysResult<()> {
         Err(SysError::ENOTDIR)
+    }
+    fn concrete_getchild(self:Arc<Self>, _name: &str) -> Option<Arc<dyn Dentry>> {
+        unimplemented!()
+    }
+    fn self_arc(self:Arc<Self>) -> Arc<dyn Dentry> {
+        unimplemented!()
     }
 }
 

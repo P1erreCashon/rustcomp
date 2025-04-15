@@ -89,7 +89,7 @@ use crate::task::{check_signals_error_of_current, current_task, exit_current_and
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 use crate::task::check_pending_signals;
 
 /// handle syscall exception with `syscall_id` and other arguments
