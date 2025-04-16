@@ -12,7 +12,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arch::time::{self, Time};
-use arch::{TrapFrameArgs,PAGE_SIZE};
+use arch::{TrapFrameArgs, PAGE_SIZE};
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 use config::{ USER_STACK_SIZE,RLimit,Resource};
@@ -23,6 +23,9 @@ use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
+
+pub const PAGE_BIT_LEN: usize = 12;
+pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
 
 bitflags! {
     /// Defined in <bits/sched.h>
@@ -476,7 +479,7 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> SysResult<isiz
             let t = Time::now().to_usec();
             //println!("time={}",t);
             byte <<= 1;
-            if t/2*2 == t { //0
+            if t & 1 == 0 { //0
                 byte |= 0;
             }
             else { //1
@@ -507,8 +510,8 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
 }
 
 pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
-    //log_debug!("mprotect");
-    if addr.addr() / PAGE_SIZE * PAGE_SIZE != addr.addr() {
+    //log_debug!("protect addr = {:x} len= {} prot= {}\n",addr.addr()/PAGE_SIZE,len/PAGE_SIZE,prot);
+    if (addr.addr() & PAGE_MASK) != 0 {
         return Err(SysError::EINVAL);
     }
     let task = current_task().unwrap();
@@ -523,17 +526,21 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     let mut new_area=None;
     // 找到包含addr的区域
     let mut is_find = false;
+    //log_debug!("mmap:");
     for ele in &mut inner.memory_set.mmap_area {
-        if ele.vpn_range.l <= start_vpn && ele.vpn_range.r >= start_vpn {
+        //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
+        if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
             //ele.map_perm = perm;
             new_area = ele.split_vpn_range(split_range, perm, &mut op);
             is_find = true;
             break;
         }
     }
+    //log_debug!("heap:");
     if !is_find {
         for ele in &mut inner.memory_set.heap_area {
-            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r < start_vpn {
+            //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
+            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
                 //ele.map_perm = perm;
                 new_area = ele.split_vpn_range(split_range, perm, &mut op);
                 is_find = true;
@@ -541,11 +548,14 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
             }
         }
     }
+    //log_debug!("normal:");
     if !is_find {
         for ele in &mut inner.memory_set.areas {
-            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r < start_vpn {
+            //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
+            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
                 //ele.map_perm = perm;
                 new_area = ele.split_vpn_range(split_range, perm, &mut op);
+                is_find = true;
                 break;
             }
         }
@@ -557,7 +567,14 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
         }
         None => {}
     }
-    Ok(0)
+
+    if is_find {
+        Ok(0)
+    }
+    else {
+        Err(SysError::ENXIO)
+    }
+    
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
