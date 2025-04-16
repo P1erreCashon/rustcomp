@@ -479,12 +479,7 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> SysResult<isiz
             let t = Time::now().to_usec();
             //println!("time={}",t);
             byte <<= 1;
-            if t & 1 == 0 { //0
-                byte |= 0;
-            }
-            else { //1
-                byte |= 1;
-            }
+            byte |= (t & 1) as u8;
         }
         let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
         *buf_ref = byte;
