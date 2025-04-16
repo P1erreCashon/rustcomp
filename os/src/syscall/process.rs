@@ -505,71 +505,87 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
 }
 
 pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
-    //log_debug!("protect addr = {:x} len= {} prot= {}\n",addr.addr()/PAGE_SIZE,len/PAGE_SIZE,prot);
+    log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
+
+    // 检查地址是否页对齐
     if (addr.addr() & PAGE_MASK) != 0 {
         return Err(SysError::EINVAL);
     }
+
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
-    //addr-addr+len-1
+
+    log_debug!("before mprotect:");
+    inner.memory_set.debug_addr_info();
+
+    // 计算虚拟页范围
     let start_vpn: VirtPage = addr.floor().into();
-    let end_vpn: VirtPage = VirtAddr::new(addr.addr()+len-1).ceil().into();
-    let split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
+    let end_vpn: VirtPage = VirtAddr::new(addr.addr() + len - 1).ceil().into();
+    let mut split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
 
-    let perm = from_prot(prot); //提取权限
-    let mut op=-1;
-    let mut new_area=None;
-    // 找到包含addr的区域
+    let perm = from_prot(prot); // 提取权限
+    let mut new_areas = Vec::new();
     let mut is_find = false;
-    //log_debug!("mmap:");
-    for ele in &mut inner.memory_set.mmap_area {
-        //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
-        if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
-            //ele.map_perm = perm;
-            new_area = ele.split_vpn_range(split_range, perm, &mut op);
-            is_find = true;
-            break;
-        }
-    }
-    //log_debug!("heap:");
-    if !is_find {
-        for ele in &mut inner.memory_set.heap_area {
-            //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
+
+    // 定义查找区域的辅助函数
+    let mut process_area = |areas: &mut Vec<MapArea>, area_id: i32, is_find: &mut bool| {
+        for ele in areas {
             if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
-                //ele.map_perm = perm;
-                new_area = ele.split_vpn_range(split_range, perm, &mut op);
-                is_find = true;
-                break;
+                log_debug!("check ({},{})",ele.vpn_range.l,ele.vpn_range.r);
+                let mut op = -1;
+                new_areas = ele.split_vpn_range(&mut split_range, perm, &mut op);
+                *is_find = true;
+
+                // 根据操作类型决定是否终止
+                if matches!(op, 1 | 2 | 3 | 4) {
+                    return Some(area_id); // 找到并处理完成
+                }
+                else if matches!(op, 5 | 6) {
+                    continue; // 继续处理
+                }
+                else {
+                    panic!("op error in mprotect call");
+                }
             }
         }
-    }
-    //log_debug!("normal:");
+        None
+    };
+
+    // 检查 mmap_area、heap_area、areas，并在找到后停止
+    let mut target_area_id = None;
     if !is_find {
-        for ele in &mut inner.memory_set.areas {
-            //log_debug!("({},{})",ele.vpn_range.l,ele.vpn_range.r);
-            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
-                //ele.map_perm = perm;
-                new_area = ele.split_vpn_range(split_range, perm, &mut op);
-                is_find = true;
-                break;
+        log_debug!("check normal");
+        target_area_id = process_area(&mut inner.memory_set.areas, 0, &mut is_find);
+    }
+    if !is_find && target_area_id.is_none() {
+        log_debug!("check mmap");
+        target_area_id = process_area(&mut inner.memory_set.mmap_area, 1, &mut is_find);
+    }
+    if !is_find && target_area_id.is_none() {
+        log_debug!("check heap");
+        target_area_id = process_area(&mut inner.memory_set.heap_area, 2, &mut is_find);
+}
+
+    // 新区间插入对应area
+    for new_area in new_areas {
+        if let Some(area) = new_area {
+            match target_area_id {
+                Some(0) => inner.memory_set.areas.push(area),
+                Some(1) => inner.memory_set.mmap_area.push(area),
+                Some(2) => inner.memory_set.heap_area.push(area),
+                _ => panic!("wrong area_id in mprotect call!"),
             }
         }
     }
 
-    match new_area {
-        Some(new_area) => {
-            inner.memory_set.mmap_area.push(new_area);
-        }
-        None => {}
-    }
+    log_debug!("after mprotect:");
+    inner.memory_set.debug_addr_info();
 
     if is_find {
         Ok(0)
-    }
-    else {
+    } else {
         Err(SysError::ENXIO)
     }
-    
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {

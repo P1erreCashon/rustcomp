@@ -4,6 +4,7 @@ use super::{frame_alloc, vpn_range, FrameTracker};
 //use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::vpn_range::VPNRange;
 use alloc::alloc::dealloc;
+use alloc::string::String;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use arch::{USER_VADDR_END,PAGE_SIZE};
@@ -14,8 +15,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-//const MODULE_LEVEL:log::Level = log::Level::Info;
-
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 /*
 lazy_static! { 
 /* a memory set instance through lazy_static! managing kernel space    pub static ref KERNEL_SPACE: Arc<UPSafeCell<MemorySet>> =
@@ -248,6 +248,67 @@ impl MemorySet {
             -1 // 未找到，返回 -1 或其他表示失败的值
         }
     }
+    ///
+    pub fn debug_addr_info(&self) {
+        log_debug!("\n");
+        log_debug!("mmap:");
+        for ele in &self.mmap_area {
+            let mut result = String::new();
+ 
+            if ele.map_perm.bits & MapPermission::R.bits != 0 {
+                result.push('R');
+            }
+            if ele.map_perm.bits & MapPermission::W.bits != 0 {
+                result.push('W');
+            }
+            if ele.map_perm.bits & MapPermission::X.bits != 0 {
+                result.push('X');
+            }
+            if ele.map_perm.bits & MapPermission::U.bits != 0 {
+                result.push('U');
+            }
+            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+        }
+        log_debug!("heap:");
+    
+        for ele in &self.heap_area {
+            let mut result = String::new();
+ 
+            if ele.map_perm.bits & MapPermission::R.bits != 0 {
+                result.push('R');
+            }
+            if ele.map_perm.bits & MapPermission::W.bits != 0 {
+                result.push('W');
+            }
+            if ele.map_perm.bits & MapPermission::X.bits != 0 {
+                result.push('X');
+            }
+            if ele.map_perm.bits & MapPermission::U.bits != 0 {
+                result.push('U');
+            }
+            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+        }
+        log_debug!("normal:");
+    
+        for ele in &self.areas {
+            let mut result = String::new();
+ 
+            if ele.map_perm.bits & MapPermission::R.bits != 0 {
+                result.push('R');
+            }
+            if ele.map_perm.bits & MapPermission::W.bits != 0 {
+                result.push('W');
+            }
+            if ele.map_perm.bits & MapPermission::X.bits != 0 {
+                result.push('X');
+            }
+            if ele.map_perm.bits & MapPermission::U.bits != 0 {
+                result.push('U');
+            }
+            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+        }
+        log_debug!("\n");
+    }
 }
 /*
 // 动态堆
@@ -422,12 +483,15 @@ impl MapArea {
     }
 
     // 返回分裂出的area,只做vpn_range分裂，不分裂实际物理页，新的area不持有物理页对象
-    pub fn split_vpn_range(&mut self, range: VPNRange, mp: MapPermission, op: &mut isize) -> Option<Self> {
+    // 不改变的部分传出再push,改变的部分直接改变权限并调整边界
+    // op=5、6 需要继续遍历
+    pub fn split_vpn_range(&mut self, range: &mut VPNRange, mp: MapPermission, op: &mut isize) -> Vec<Option<Self>> {
+        let mut result = Vec::new(); // 初始化一个向量来存储结果
         // 恰好是一个块
         if range.l == self.vpn_range.l && range.r == self.vpn_range.r {
             self.map_perm = mp;
             *op = 0;
-            return None;
+            result
         }
         else {
             if range.l == self.vpn_range.l && range.r < self.vpn_range.r {
@@ -435,21 +499,44 @@ impl MapArea {
                 let new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.r.to_addr().into(), self.map_type, self.map_perm);
                 self.vpn_range.r = range.r;
                 self.map_perm = mp;
-                return Some(new_area);
+                result.push(Some(new_area));
             }
             else if range.l > self.vpn_range.l && range.r == self.vpn_range.r {
                 *op = 2;
                 let new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
                 self.vpn_range.l = range.l;
                 self.map_perm = mp;
-                return Some(new_area);
+                result.push(Some(new_area));
+            }
+            else if range.l > self.vpn_range.l && range.r < self.vpn_range.r {
+                *op = 3;
+                // 在整块中间划开
+                let new_area_left = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                let new_area_right = MapArea::new(self.vpn_range.r.to_addr().into(), range.r.to_addr().into(), self.map_type, self.map_perm);
+                self.vpn_range.l = range.l;
+                self.vpn_range.r = range.r;
+                self.map_perm = mp;
+                result.push(Some(new_area_left));
+                result.push(Some(new_area_right));
+            }
+            else if range.l == self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界重合
+                *op = 4;
+                self.map_perm = mp;
+                range.l = self.vpn_range.r;
+            }
+            else if range.l > self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界不重合
+                *op = 5;
+                let new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                self.map_perm = mp;
+                self.vpn_range.l = range.l;
+                range.l = self.vpn_range.r;
+                result.push(Some(new_area));
             }
             else {
-                *op = 3;
-                //做整块处理
-                self.map_perm = mp;
-                return None;
+                panic!("situation not consider in mprotect call");
             }
+
+            return result;
         }
     }
 }
