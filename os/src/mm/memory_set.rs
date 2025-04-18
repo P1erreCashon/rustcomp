@@ -406,7 +406,7 @@ impl MapArea {
             //map_perm: another.map_perm.clone(),
         }
     }
-    ///
+    /* 
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPage) {
         let frame = frame_alloc().unwrap();
         let ppn: PhysPage = frame.ppn;
@@ -423,14 +423,14 @@ impl MapArea {
         }*/
         //let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map_page(vpn, ppn, self.map_perm.into(),MappingSize::Page4KB);
-    }
-    ///
+    }*/
+    /*
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPage, ppn: PhysPage) {
         if self.map_type == MapType::Framed {
             self.data_frames.remove(&ppn);
         }
         page_table.unmap_page(vpn);
-    }
+    }*/
     ///
     pub fn map(&mut self, page_table: &Arc<PageTableWrapper>) {
         for vpn in self.vpn_range {

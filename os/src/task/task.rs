@@ -134,6 +134,7 @@ pub struct TaskControlBlockInner {
     pub trap_ctx_backup: Option<TrapFrame>, // 添加 trap_ctx_backup 字段
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
+    pub heap_bottom: usize, //brk收缩判断
     pub stack_bottom: usize,
     pub max_data_addr: usize,
     pub tms: Tms,
@@ -215,7 +216,8 @@ impl TaskControlBlock {
                     signal_mask_backup: SignalFlags::empty(),
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
-                    heap_top: heap_top, //
+                    heap_top: heap_top,
+                    heap_bottom: heap_top,
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
                     tms: Tms::new(),
@@ -401,6 +403,7 @@ impl TaskControlBlock {
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
                     heap_top: parent_inner.heap_top,
+                    heap_bottom: parent_inner.heap_bottom,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
                     tms: Tms::from_other_task(&parent_inner.tms),

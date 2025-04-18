@@ -70,6 +70,7 @@ use lazy_static::*;
 //use sync::IntrCell;
 use arch::TrapType::*;
 use log::Record;
+use syscall::lazy_brk;
 //lazy_static! {
     //
   //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
@@ -133,9 +134,29 @@ impl ArchInterface for ArchInterfaceImpl {
                     current_trap_cx().sepc,
                 );
                 */
-                println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
+                
+                /*let task=current_task().unwrap();
+                let inner=task.inner_exclusive_access();
+                println!("\nheaptop={} data={}",inner.heap_top,inner.max_data_addr);
+                drop(inner);
+                */
+                match lazy_brk(_paddr) {
+                    Ok(0) => {
+                        /*println!("lazy-brk: {}",_paddr);
+                        let task=current_task().unwrap();
+                        let inner=task.inner_exclusive_access();
+                        println!("heaptop={} data={}",inner.heap_top,inner.max_data_addr);
+                        */
+                    }
+                    _ => {
+                        println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
+                    //      ctx.syscall_ok();
+                        exit_current_and_run_next(-1);
+                    }
+                }
+                //println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
           //      ctx.syscall_ok();
-                exit_current_and_run_next(-1);
+                //exit_current_and_run_next(-1);
             }
             IllegalInstruction(_) => {
                 println!("IllegalInstruction!");
