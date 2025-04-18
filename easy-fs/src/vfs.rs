@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use lazy_static::*;
 use spin::{Mutex, MutexGuard};
-use vfs_defs::{Inode, InodeMeta, InodeMetaInner, SuperBlock, SuperBlockInner,DiskInodeType,InodeState};
+use vfs_defs::{Inode, InodeMeta, InodeMetaInner, SuperBlock, SuperBlockInner,DiskInodeType,InodeState,InodeMode};
 use device::BLOCK_DEVICE;
 use system_result::{SysResult,SysError};
 
@@ -122,7 +122,7 @@ impl EfsInode {
 //            fs,
 //            block_device,
             inner:Mutex::new(InodeInner::new()),
-            meta:InodeMeta::new(ino, superblock)
+            meta:InodeMeta::new(InodeMode::FILE,ino, superblock)
         }
     }
     fn get_super(&self)->Arc<EfsSuperBlock>{

@@ -4,7 +4,7 @@ use device::BlockDevice;
 use system_result::{SysError, SysResult};
 use super::Dentry;
 use super::SuperBlock;
-use spin::Mutex;
+use sync::Mutex;
 ///
 bitflags::bitflags! {
     ///
@@ -15,8 +15,10 @@ bitflags::bitflags! {
 
 ///
 pub struct FileSystemTypeInner{
-    name:String,
-    superblocks:Mutex<BTreeMap<String, Arc<dyn SuperBlock>>>,
+    ///
+    pub name:String,
+    ///
+    pub superblocks:Mutex<BTreeMap<String, Arc<dyn SuperBlock>>>,
 }
 
 impl  FileSystemTypeInner{

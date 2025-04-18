@@ -1,11 +1,10 @@
 use alloc::{
-    vec::Vec,
     collections::BTreeMap,
-    string::{String, ToString},
+    string::String,
     sync::{Arc, Weak},
 };
-use crate::{inode::{DiskInodeType, Inode}, superblock, SuperBlock,intenal_to_leaf,dcache_lookup,dcache_drop};
-use spin::{Mutex,MutexGuard};
+use crate::{inode::{DiskInodeType, Inode}, SuperBlock,intenal_to_leaf,dcache_lookup,dcache_drop};
+use sync::{Mutex,MutexGuard};
 use system_result::{SysError,SysResult};
 use super::{File,OpenFlags,RenameFlags};
 const MODULE_LEVEL:log::Level = log::Level::Debug;

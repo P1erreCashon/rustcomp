@@ -13,8 +13,8 @@ mod file;
 /// Use a block size of 512 bytes
 //pub const BLOCK_SZ: usize = 512;
 use bitmap::Bitmap;
-use buffer::{block_cache_sync_all, get_block_cache};
-pub use buffer::{BLOCK_SZ,DataBlock};
+use buffer::{block_cache_sync_all, get_block_cache,DataBlock};
+use config::BLOCK_SZ;
 pub use device::block_dev::BlockDevice;
 pub use efs::{EasyFileSystem,EfsFsType};
 use layout::*;

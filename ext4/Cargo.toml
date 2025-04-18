@@ -8,6 +8,7 @@ ext4_rs = { git = "https://github.com/yuoo655/ext4_rs.git", rev = "4d53794" }
 device = { path = "../device" }
 buffer = { path = "../buffer" }
 logger = { path = "../logger" }
+config = { path = "../config" }
 vfs-defs = { path = "../vfs-defs" }
 system-result = { path = "../system-result" }
 spin = "0.7.0"

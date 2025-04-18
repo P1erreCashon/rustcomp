@@ -2,7 +2,7 @@ use alloc::sync::{Weak,Arc};
 use device::BlockDevice;
 use super::{FileSystemType,Dentry,Inode};
 use downcast_rs::{impl_downcast, DowncastSync};
-use spin::Once;
+use sync::Once;
 ///
 pub struct SuperBlockInner{
     ///

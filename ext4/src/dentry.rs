@@ -1,4 +1,4 @@
-use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags,RenameFlags,alloc_dentry};
+use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags,RenameFlags,alloc_dentry,InodeMode};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::{String,ToString};
@@ -45,9 +45,10 @@ impl Dentry for Ext4Dentry{
                 return Err(SysError::EISDIR);
             }
         }
-        let child_inode = Ext4Inode::new(InodeMeta::new(child_ino.unwrap() as usize, sblock),);
+        let child_inode = Ext4Inode::new(InodeMeta::new(InodeMode::from_type(_type),child_ino.unwrap() as usize, sblock),);
         child_inode.set_type(_type);
         child_dir.set_inode(Arc::new(child_inode));
+        *child_dir.get_state() = DentryState::Valid;
         Ok(child_dir)
     }
     fn concrete_link(self: Arc<Self>, new: &Arc<dyn Dentry>) -> SysResult<()> {
@@ -106,12 +107,12 @@ impl Dentry for Ext4Dentry{
         }            
         let inode_ref = sblock.ext4fs.get_inode_ref(r.unwrap());
         if inode_ref.inode.is_file(){             
-            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock)));
+            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(InodeMode::FILE,r.unwrap() as usize, sblock)));
             child_inode.set_type(DiskInodeType::File);
             child.set_inode(child_inode);
         } 
         else{
-            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock)));
+            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(InodeMode::DIR,r.unwrap() as usize, sblock)));
             child_inode.set_type(DiskInodeType::Directory);
             child.set_inode(child_inode);            
         }

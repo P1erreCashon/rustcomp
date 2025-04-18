@@ -16,7 +16,11 @@ pub const MAX_FD:usize = 1024;
 pub const USER_HEAP_SIZE: usize = 0x8000;
 //pub const PAGE_SIZE_BITS: usize = 0xc;
 
+/// Use a fs block size of 512 bytes
+pub const BLOCK_SZ: usize = 4096;
 
+// The io block size of the disk layer
+pub const DISK_BLOCK_SZ: usize = 512;
 //pub use crate::board::CLOCK_FREQ;
 
 

@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize,Ordering};
-use spin::{Mutex, MutexGuard};
+use sync::{Mutex, MutexGuard};
 use super::{Dentry,Inode,DentryState,PollEvents};
 use bitflags::*;
 use alloc::vec::Vec;

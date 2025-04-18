@@ -1,6 +1,6 @@
 use core::num::NonZero;
 use lazy_static::*;
-use spin::Mutex;
+use sync::Mutex;
 use alloc::{
     vec::Vec,
     collections::BTreeMap,
