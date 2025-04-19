@@ -235,7 +235,8 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
 pub fn lazy_brk(error_addr: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
- 
+    inner.memory_set.handle_lazy_addr(error_addr)?;
+    /* 
     if error_addr >= inner.max_data_addr && error_addr < inner.heap_top {
         let cur_addr = VirtAddr::new(inner.max_data_addr).floor();
         let new_addr = VirtAddr::new(error_addr).ceil();
@@ -254,9 +255,9 @@ pub fn lazy_brk(error_addr: usize) -> SysResult<isize> {
  
         inner.max_data_addr += PAGE_SIZE * page_count;
         return Ok(0);
-    }
+    }*/
  
-    Ok(-1)
+    Ok(0)
 }
 
 pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
@@ -281,6 +282,21 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
             return Ok(cur_brk as isize);
 //            return -1;
         }
+        let cur_addr = VirtAddr::new(task_inner.max_data_addr).floor();
+        let new_addr = VirtAddr::new(new_brk).ceil();
+        
+        let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
+        let alloc_start_addr = task_inner.max_data_addr;
+        task_inner.memory_set.push_into_heaparea_lazy(
+            MapArea::new(
+                VirtAddr::new(alloc_start_addr), //向下
+                VirtAddr::new(new_brk), //向上
+                MapType::Framed,
+                MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
+            ),
+        );
+        task_inner.max_data_addr += PAGE_SIZE*page_count;
+        //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
         return Ok(new_brk as isize);
      //   0
@@ -289,14 +305,26 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
           return Ok(cur_brk as isize);
     //    -1
     }
-    else {
-        if new_brk >= task_inner.heap_bottom {
-            task_inner.heap_top = new_brk;
-            return Ok(new_brk as isize);
-        }
-        else {
-            return Err(SysError::ENXIO);
-        }
+    else {// 不考虑不合理的减小
+        // 确认需要释放的虚页号
+        /*let cur_page = cur_brk / PAGE_SIZE;
+        
+        let new_page = new_brk / PAGE_SIZE ; 
+        let page_count = cur_page - new_page;
+        
+        if page_count > 0 {
+            // 解除映射并释放物理页帧
+            for i in 1..(page_count + 1) {
+                let vpn = VirtPage::from(cur_page - i);
+                task_inner.memory_set.unmap_page(vpn);
+                    //frame_dealloc(ppn);
+            }
+        }*/
+        // 不释放
+        // new_brk 应当大于数据段起始 未做判断
+        task_inner.heap_top = new_brk;
+        return Ok(new_brk as isize);
+    //   0
     }
 }
 

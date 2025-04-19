@@ -14,6 +14,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
+use system_result::{SysError,SysResult};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 /*
@@ -69,6 +70,30 @@ impl MemorySet {
             map_area.copy_data(&self.page_table, data);
         }
         self.heap_area.push(map_area);
+    }
+    pub fn push_into_heaparea_lazy_while_clone(&mut self,mut map_area: MapArea) { 
+        for vpn in map_area.vpn_range {
+            //self.map_one(page_table, vpn);
+            if self.page_table.translate(vpn.into()).is_some(){
+                map_area.map_one(&self.page_table, vpn);
+            }  
+        }
+        self.heap_area.push(map_area);
+    }
+    /// 分配+映射->heap_area
+    pub fn push_into_heaparea_lazy(&mut self, map_area: MapArea) { 
+        self.heap_area.push(map_area);
+    }
+    pub fn handle_lazy_addr(&mut self,addr:usize)->SysResult<()>{
+        println!("lazy addr:{:x}",addr);
+        for area in self.heap_area.iter_mut(){
+            println!("start:{:x} end:{:x}", area.vpn_range.get_start().to_addr(),area.vpn_range.get_end().to_addr());
+            if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
+                area.map_one(&self.page_table, VirtPage::new(addr/PAGE_SIZE));
+                return Ok(());
+            }
+        }
+        return Err(SysError::EADDRNOTAVAIL);
     }
     /// 分配+映射->mmap_area
     pub fn push_into_mmaparea(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
@@ -138,15 +163,15 @@ impl MemorySet {
 
         let heap_start:usize =  max_virt_mem.try_into().unwrap();
         let heap_top: usize = heap_start + USER_HEAP_SIZE;
-        memory_set.push(
+        memory_set.push_into_heaparea_lazy(
             MapArea::new(
                 heap_start.into(),
                 heap_top.into(),
                 MapType::Framed,
                 MapPermission::R | MapPermission::W | MapPermission::U,
             ),
-            None,
         );
+        println!("exec:h bottom:{:x} h end:{:x}",heap_start,heap_top);
         // map user stack with U flags
         // let max_end_va: VirtAddr = max_end_vpn.into();
         
@@ -176,10 +201,12 @@ impl MemorySet {
     }
     ///Clone a same `MemorySet`
     pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
+     //   println!("fork from user");
         let mut memory_set = Self::new_bare();
         // map trampoline
         // copy data sections/trap_context/user_stack
         for area in user_space.areas.iter() {
+            println!("from e user:common area:{:x} {:x}",area.vpn_range.get_start_addr().addr(),area.vpn_range.get_end_addr().addr());
             let new_area = MapArea::from_another(area);
             memory_set.push(new_area, None);
             // copy data from another space
@@ -192,20 +219,32 @@ impl MemorySet {
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
+      //  println!("fork from user data done");
         // copy heap_area (可能出错)
         for area in user_space.heap_area.iter() {
+            println!("from e user:heap area:{:x} {:x}",area.vpn_range.get_start_addr().addr(),area.vpn_range.get_end_addr().addr());
             let new_area = MapArea::from_another(area);
-            memory_set.push_into_heaparea(new_area, None);
+            memory_set.push_into_heaparea_lazy_while_clone(new_area);
+       //     println!("fork from user push heap");
             // copy data from another space
             for vpn in area.vpn_range {
-                let src_ppn = user_space.translate(vpn).unwrap().0;
-                let dst_ppn = memory_set.translate(vpn).unwrap().0;
+                if let Some(src_ppn) = user_space.translate(vpn){
+                    if src_ppn.0.to_addr() != 0 {
+                  //      println!("vpn:{:x} ppn:{:x}",vpn.to_addr(),src_ppn.0.to_addr());
+                        let dst_ppn = memory_set.translate(vpn).unwrap();
+                        dst_ppn.0.get_buffer().copy_from_slice(src_ppn.0.get_buffer())
+                    }
+                    
+
+                }
+                
               //  dst_ppn
                 //    .get_bytes_array()
                   //  .copy_from_slice(src_ppn.get_bytes_array());
-                  dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
+         //   println!("fork from user copy data");
         }
+     //   println!("fork from user heap done");
         //copy mmap_area (可能出错)
         for area in user_space.mmap_area.iter() {
             let new_area = MapArea::from_another(area);
@@ -220,6 +259,7 @@ impl MemorySet {
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
+     //   println!("fork from mmap done");
         
         memory_set
     }
@@ -406,8 +446,7 @@ impl MapArea {
             //map_perm: another.map_perm.clone(),
         }
     }
-    /* 
-    pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPage) {
+    pub fn map_one(&mut self, page_table: &Arc<PageTableWrapper>, vpn: VirtPage) {
         let frame = frame_alloc().unwrap();
         let ppn: PhysPage = frame.ppn;
         self.data_frames.insert(ppn, frame);
@@ -423,7 +462,7 @@ impl MapArea {
         }*/
         //let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map_page(vpn, ppn, self.map_perm.into(),MappingSize::Page4KB);
-    }*/
+    }
     /*
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPage, ppn: PhysPage) {
         if self.map_type == MapType::Framed {
@@ -436,11 +475,15 @@ impl MapArea {
         for vpn in self.vpn_range {
             //self.map_one(page_table, vpn);
             let p_tracker = frame_alloc().expect("can't allocate frame");
+            if vpn.to_addr() == 0x1b6000{
+                println!("vpn={},ppn={}",vpn,p_tracker.ppn);
+            }
             //println!("vpn={},ppn={}",vpn,p_tracker.ppn);
             page_table.map_page(vpn, p_tracker.ppn, self.map_perm.into(), MappingSize::Page4KB);
             self.data_frames.insert(p_tracker.ppn, p_tracker);   
         }
-    } /* 
+    } 
+    /* 
     pub fn unmap(&mut self, page_table: &mut PageTable) {
         for vpn in self.vpn_range {
             self.unmap_one(page_table, vpn);
