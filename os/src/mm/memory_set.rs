@@ -85,9 +85,7 @@ impl MemorySet {
         self.heap_area.push(map_area);
     }
     pub fn handle_lazy_addr(&mut self,addr:usize)->SysResult<()>{
-        println!("lazy addr:{:x}",addr);
         for area in self.heap_area.iter_mut(){
-            println!("start:{:x} end:{:x}", area.vpn_range.get_start().to_addr(),area.vpn_range.get_end().to_addr());
             if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
                 area.map_one(&self.page_table, VirtPage::new(addr/PAGE_SIZE));
                 return Ok(());
@@ -171,14 +169,12 @@ impl MemorySet {
                 MapPermission::R | MapPermission::W | MapPermission::U,
             ),
         );
-        println!("exec:h bottom:{:x} h end:{:x}",heap_start,heap_top);
         // map user stack with U flags
         // let max_end_va: VirtAddr = max_end_vpn.into();
         
         // guard page
         let user_stack_top = USER_STACK_TOP; //8G
         let user_stack_bottom = user_stack_top - USER_STACK_SIZE;
-        //println!("heaptop:{:x} user_stack_bottom:{:x}",heap_top,user_stack_top);
         memory_set.push(
             MapArea::new(
                 user_stack_bottom.into(),
@@ -201,12 +197,10 @@ impl MemorySet {
     }
     ///Clone a same `MemorySet`
     pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
-     //   println!("fork from user");
         let mut memory_set = Self::new_bare();
         // map trampoline
         // copy data sections/trap_context/user_stack
         for area in user_space.areas.iter() {
-            println!("from e user:common area:{:x} {:x}",area.vpn_range.get_start_addr().addr(),area.vpn_range.get_end_addr().addr());
             let new_area = MapArea::from_another(area);
             memory_set.push(new_area, None);
             // copy data from another space
@@ -219,10 +213,8 @@ impl MemorySet {
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
-      //  println!("fork from user data done");
         // copy heap_area (可能出错)
         for area in user_space.heap_area.iter() {
-            println!("from e user:heap area:{:x} {:x}",area.vpn_range.get_start_addr().addr(),area.vpn_range.get_end_addr().addr());
             let new_area = MapArea::from_another(area);
             memory_set.push_into_heaparea_lazy_while_clone(new_area);
        //     println!("fork from user push heap");
@@ -242,9 +234,7 @@ impl MemorySet {
                 //    .get_bytes_array()
                   //  .copy_from_slice(src_ppn.get_bytes_array());
             }
-         //   println!("fork from user copy data");
         }
-     //   println!("fork from user heap done");
         //copy mmap_area (可能出错)
         for area in user_space.mmap_area.iter() {
             let new_area = MapArea::from_another(area);
@@ -259,7 +249,6 @@ impl MemorySet {
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
-     //   println!("fork from mmap done");
         
         memory_set
     }
@@ -410,7 +399,7 @@ impl MemorySet {
 pub struct MapArea {
     ///
     pub vpn_range: VPNRange,
-    data_frames: BTreeMap<PhysPage, FrameTracker>,
+    data_frames: BTreeMap<VirtPage, FrameTracker>,
     ///
     pub map_type: MapType,
     ///
@@ -449,7 +438,7 @@ impl MapArea {
     pub fn map_one(&mut self, page_table: &Arc<PageTableWrapper>, vpn: VirtPage) {
         let frame = frame_alloc().unwrap();
         let ppn: PhysPage = frame.ppn;
-        self.data_frames.insert(ppn, frame);
+        self.data_frames.insert(vpn, frame);
         /*match self.map_type {
             MapType::Identical => {
                 ppn = PhysPageNum(vpn.0);
@@ -475,12 +464,9 @@ impl MapArea {
         for vpn in self.vpn_range {
             //self.map_one(page_table, vpn);
             let p_tracker = frame_alloc().expect("can't allocate frame");
-            if vpn.to_addr() == 0x1b6000{
-                println!("vpn={},ppn={}",vpn,p_tracker.ppn);
-            }
             //println!("vpn={},ppn={}",vpn,p_tracker.ppn);
             page_table.map_page(vpn, p_tracker.ppn, self.map_perm.into(), MappingSize::Page4KB);
-            self.data_frames.insert(p_tracker.ppn, p_tracker);   
+            self.data_frames.insert(vpn, p_tracker);   
         }
     } 
     /* 

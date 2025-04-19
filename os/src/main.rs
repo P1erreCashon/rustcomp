@@ -149,8 +149,7 @@ impl ArchInterface for ArchInterfaceImpl {
                         */
                     }
                     _ => {
-                        let task=current_task().unwrap();
-                        println!("err {:x?},sepc:{:x} {}", trap_type,ctx.sepc,task.getpid());
+                        println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
                     //      ctx.syscall_ok();
                         exit_current_and_run_next(-1);
                     }

@@ -24,8 +24,8 @@ use bitflags::*;
 use system_result::{SysError,SysResult};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 
-pub const PAGE_BIT_LEN: usize = 12;
-pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
+//pub const PAGE_BIT_LEN: usize = 12;
+//pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
 
 bitflags! {
     /// Defined in <bits/sched.h>
@@ -529,7 +529,8 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
     }
 }
 
-pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
+pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> {
+    /* 
     log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
 
     // 检查地址是否页对齐
@@ -610,7 +611,41 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
         Ok(0)
     } else {
         Err(SysError::ENXIO)
+    }*/
+    if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
+        return Err(SysError::EINVAL);
     }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    //addr-addr+len-1
+    let perm = from_prot(prot); //提取权限
+    // 找到包含addr的区域
+    let mut is_find = false;
+    for ele in &mut inner.memory_set.mmap_area {
+        if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+            ele.map_perm = perm;
+            is_find = true;
+            break;
+        }
+    }
+    if !is_find {
+        for ele in &mut inner.memory_set.heap_area {
+            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+                ele.map_perm = perm;
+                is_find = true;
+                break;
+            }
+        }
+    }
+    if !is_find {
+        for ele in &mut inner.memory_set.areas {
+            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
+                ele.map_perm = perm;
+                break;
+            }
+        }
+    } 
+    Ok(0)
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
