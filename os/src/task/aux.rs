@@ -9,6 +9,8 @@ pub const AT_PHNUM: usize = 5;
 ///
 pub const AT_PAGESZ: usize = 6;
 ///
+pub const AT_BASE: usize = 7;
+///
 pub const AT_RANDOM: usize = 25;
 
 

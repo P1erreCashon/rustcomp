@@ -7,11 +7,14 @@ use alloc::alloc::dealloc;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use arch::{USER_VADDR_END,PAGE_SIZE};
-use config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP};
+use config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP,DL_INTERP_OFFSET};
+use crate::fs::path_to_dentry;
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use alloc::vec;
+use alloc::string::{String,ToString};
 use spin::Mutex;
 
 //const MODULE_LEVEL:log::Level = log::Level::Info;
@@ -78,13 +81,46 @@ impl MemorySet {
         }
         self.mmap_area.push(map_area);
     }
-    /// Include sections in elf and trampoline and TrapContext and user stack,
-    /// also returns user_sp and entry point.
-    pub fn from_elf(elf_data: &[u8]) -> (Self, usize, usize, usize,u16,u16,u64,usize) {
-        let mut memory_set = Self::new_bare();
-        // map trampoline
-        // map program headers of elf, with U flag
+    pub fn load_interp(&mut self,elf_data: &[u8]) -> Option<usize>{
         let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
+        let elf_header = elf.header;
+        let ph_count = elf_header.pt2.ph_count();
+        let mut is_dl = false;
+        for i in 0..ph_count {
+            let ph = elf.program_header(i).unwrap();
+            if ph.get_type().unwrap() == xmas_elf::program::Type::Interp{
+                    is_dl = true;
+                    break;
+            }
+        }
+        if is_dl{
+            let section = elf.find_section_by_name(".interp").unwrap();
+            let mut interp = String::from_utf8(section.raw_data(&elf).to_vec()).unwrap();
+            interp = interp.strip_suffix("\0").unwrap_or(&interp).to_string();
+
+            let interps: Vec<String> = vec![interp.clone()];
+
+            let mut interp_dentry: system_result::SysResult<Arc<dyn vfs_defs::Dentry>> = Err(system_result::SysError::ENOENT);
+            for interp in interps.into_iter() {
+                if let Ok(dentry) = path_to_dentry(interp.as_str()) {
+                    interp_dentry = Ok(dentry);
+                    break;
+                }
+            }
+            let interp_dentry: Arc<dyn vfs_defs::Dentry> = interp_dentry.unwrap();
+            let interp_file = interp_dentry.open(vfs_defs::OpenFlags::RDONLY);
+            let interp_elf_data = interp_file.read_all();
+            let interp_elf = xmas_elf::ElfFile::new(&interp_elf_data).unwrap();
+
+            self.map_elf( &interp_elf, DL_INTERP_OFFSET.into());
+
+            Some(interp_elf.header.pt2.entry_point() as usize + DL_INTERP_OFFSET)
+        }
+        else{
+            None
+        }
+    }
+    fn map_elf(&mut self,elf:& xmas_elf::ElfFile,offset:usize)->(u64,usize,u64,u16,usize){//(max_virt_mem,header_va,tls_addr,ph_count)
         let elf_header = elf.header;
         let magic = elf_header.pt1.magic;
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
@@ -97,11 +133,11 @@ impl MemorySet {
         for i in 0..ph_count {
             let ph = elf.program_header(i).unwrap();
             if ph.get_type().unwrap() == xmas_elf::program::Type::Tls{
-                tls_addr = ph.virtual_addr();
+                tls_addr = ph.virtual_addr() + offset as u64;
             }
             if ph.get_type().unwrap() == xmas_elf::program::Type::Load {
-                let start_va: VirtAddr = (ph.virtual_addr() as usize).into();
-                let end_va: VirtAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();                
+                let start_va: VirtAddr = (ph.virtual_addr() as usize + offset).into();
+                let end_va: VirtAddr = ((ph.virtual_addr() + ph.mem_size()) as usize + offset).into();                
                 if !found_header_va {
                     header_va = start_va.addr();
                     found_header_va = true;
@@ -119,13 +155,13 @@ impl MemorySet {
                 }
                 let map_area = MapArea::new(start_va, end_va, MapType::Framed, map_perm);
               //  max_end_vpn = map_area.vpn_range.get_end();
-                memory_set.push(
+                self.push(
                     map_area,
                     Some(&elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize]),
                 );
                 // 最大段地址
                 //let section_end = align_up(ph.virtual_addr() + ph.mem_size(), PAGE_SIZE);
-                let mut section_end = ph.virtual_addr() + ph.mem_size();
+                let mut section_end = ph.virtual_addr() + ph.mem_size() + offset as u64;
                 let pn: u64 = section_end / PAGE_SIZE as u64;
                 if pn * PAGE_SIZE as u64 != section_end {
                     section_end = (pn + 1) * PAGE_SIZE as u64;
@@ -133,6 +169,16 @@ impl MemorySet {
                 max_virt_mem = max_virt_mem.max(section_end);
             }
         }
+        (max_virt_mem,header_va,tls_addr,ph_count,header_va + elf_header.pt2.ph_offset() as usize)
+    }
+    /// Include sections in elf and trampoline and TrapContext and user stack,
+    /// also returns user_sp and entry point.
+    pub fn from_elf(elf_data: &[u8]) -> (Self, usize, usize, usize,u16,u16,u64,usize) {
+        let mut memory_set = Self::new_bare();
+        // map trampoline
+        // map program headers of elf, with U flag
+        let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
+        let (max_virt_mem,_header_va,tls_addr,ph_count,phdr) = memory_set.map_elf(&elf, 0);
 
         // 为程序映像转储 elf 程序头
 
@@ -171,7 +217,7 @@ impl MemorySet {
             elf.header.pt2.ph_entry_size(),
             ph_count,
             tls_addr,
-            header_va + elf_header.pt2.ph_offset() as usize
+            phdr
         )
     }
     ///Clone a same `MemorySet`
