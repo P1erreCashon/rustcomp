@@ -281,73 +281,11 @@ impl MemorySet {
     }
     ///
     pub fn debug_addr_info(&self) {
-        log_debug!("\n");
-        log_debug!("mmap:");
-        for ele in &self.mmap_area {
-            let mut result = String::new();
- 
-            if ele.map_perm.bits & MapPermission::R.bits != 0 {
-                result.push('R');
-            }
-            if ele.map_perm.bits & MapPermission::W.bits != 0 {
-                result.push('W');
-            }
-            if ele.map_perm.bits & MapPermission::X.bits != 0 {
-                result.push('X');
-            }
-            if ele.map_perm.bits & MapPermission::U.bits != 0 {
-                result.push('U');
-            }
-            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
-            for mp in &ele.data_frames {
-                log_debug!("{} {}", mp.0, mp.1.ppn);
-            }
-        }
-        log_debug!("heap:");
-    
-        for ele in &self.heap_area {
-            let mut result = String::new();
- 
-            if ele.map_perm.bits & MapPermission::R.bits != 0 {
-                result.push('R');
-            }
-            if ele.map_perm.bits & MapPermission::W.bits != 0 {
-                result.push('W');
-            }
-            if ele.map_perm.bits & MapPermission::X.bits != 0 {
-                result.push('X');
-            }
-            if ele.map_perm.bits & MapPermission::U.bits != 0 {
-                result.push('U');
-            }
-            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
-            for mp in &ele.data_frames {
-                log_debug!("{} {}", mp.0, mp.1.ppn);
-            }
-        }
         log_debug!("normal:");
     
         for ele in &self.areas {
-            let mut result = String::new();
- 
-            if ele.map_perm.bits & MapPermission::R.bits != 0 {
-                result.push('R');
-            }
-            if ele.map_perm.bits & MapPermission::W.bits != 0 {
-                result.push('W');
-            }
-            if ele.map_perm.bits & MapPermission::X.bits != 0 {
-                result.push('X');
-            }
-            if ele.map_perm.bits & MapPermission::U.bits != 0 {
-                result.push('U');
-            }
-            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
-            for mp in &ele.data_frames {
-                log_debug!("{} {}", mp.0, mp.1.ppn);
-            }
+            println!("{:x} {:x} {:x} {:x}",ele.vpn_range.get_start_addr().addr(),ele.vpn_range.get_end_addr().addr(),ele.vpn_range.get_start().to_addr(),ele.vpn_range.get_end().to_addr());
         }
-        log_debug!("\n");
     }
 }
 /*
@@ -549,9 +487,10 @@ impl MapArea {
         else {
             if range.l == self.vpn_range.l && range.r < self.vpn_range.r {
                 *op = 1;
-                let mut new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.r.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.end, self.map_type, self.map_perm);
                 self.transfer_frame(&mut new_area);
                 self.vpn_range.r = range.r;
+                self.vpn_range.end = range.r.into();
                 self.map_perm = mp;
                 result.push(Some(new_area));
             }
@@ -560,18 +499,21 @@ impl MapArea {
                 let mut new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
                 self.transfer_frame(&mut new_area);
                 self.vpn_range.l = range.l;
+                self.vpn_range.start = range.l.into();
                 self.map_perm = mp;
                 result.push(Some(new_area));
             }
             else if range.l > self.vpn_range.l && range.r < self.vpn_range.r {
                 *op = 3;
                 // 在整块中间划开
-                let mut new_area_left = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
-                let mut new_area_right = MapArea::new(self.vpn_range.r.to_addr().into(), range.r.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area_left = MapArea::new(self.vpn_range.start, range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area_right = MapArea::new(range.r.into(), self.vpn_range.end, self.map_type, self.map_perm);
                 self.transfer_frame(&mut new_area_left);
                 self.transfer_frame(&mut new_area_right);
                 self.vpn_range.l = range.l;
                 self.vpn_range.r = range.r;
+                self.vpn_range.end = range.r.into();
+                self.vpn_range.start = range.l.into();
                 self.map_perm = mp;
                 result.push(Some(new_area_left));
                 result.push(Some(new_area_right));
@@ -583,17 +525,17 @@ impl MapArea {
             }
             else if range.l > self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界不重合
                 *op = 5;
-                let mut new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area = MapArea::new(self.vpn_range.start, range.l.into(), self.map_type, self.map_perm);
                 self.transfer_frame(&mut new_area);
                 self.map_perm = mp;
                 self.vpn_range.l = range.l;
+                self.vpn_range.start = range.l.into();
                 range.l = self.vpn_range.r;
                 result.push(Some(new_area));
             }
             else {
                 panic!("situation not consider in mprotect call");
             }
-
             return result;
         }
     }
@@ -643,16 +585,16 @@ impl Into<MappingFlags> for MapPermission {
 ///
 pub fn from_prot(prot: i32) -> MapPermission {
     let mut perm = MapPermission{bits: 0u8};
-    if prot & 1 != 0 {
+    if prot & 2 != 0 {
         perm |= MapPermission::R; // PROT_READ
     }
-    if prot & 2 != 0 {
+    if prot & 4 != 0 {
         perm |= MapPermission::W; // PROT_WRITE
     }
-    if prot & 4 != 0 {
+    if prot & 8 != 0 {
         perm |= MapPermission::X; // PROT_EXEC
     }
-    if prot & 8 !=0 {
+    if prot & 16 !=0 {
         perm |= MapPermission::U;
     }
     

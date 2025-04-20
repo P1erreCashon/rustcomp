@@ -534,9 +534,41 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
     }
 }
 
+// For Mmap
+bitflags! {
+    /// Mmap permissions
+    pub struct MmapProt: u32 {
+        /// None
+        const PROT_NONE = 0;
+        /// Readable
+        const PROT_READ = 1 << 0;
+        /// Writable
+        const PROT_WRITE = 1 << 1;
+        /// Executable
+        const PROT_EXEC = 1 << 2;
+    }
+}
+
+impl From<MmapProt> for MapPermission {
+    fn from(prot: MmapProt) -> Self {
+        let mut map_permission = MapPermission::U;
+        if prot.contains(MmapProt::PROT_READ) {
+            map_permission |= MapPermission::R;
+        }
+        if prot.contains(MmapProt::PROT_WRITE) {
+            map_permission |= MapPermission::W;
+        }
+        if prot.contains(MmapProt::PROT_EXEC) {
+            map_permission |= MapPermission::X;
+        }
+        map_permission
+    }
+}
+
+
 pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
-    
-    log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
+
+   // log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
 
     // 检查地址是否页对齐
     if (addr.addr() & PAGE_MASK) != 0 {
@@ -546,15 +578,14 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
 
-    log_debug!("before mprotect:");
-    inner.memory_set.debug_addr_info();
+   // log_debug!("before mprotect:");
+   // inner.memory_set.debug_addr_info();
 
     // 计算虚拟页范围
     let start_vpn: VirtPage = addr.floor().into();
     let end_vpn: VirtPage = VirtAddr::new(addr.addr() + len - 1).ceil().into();
     let mut split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
-
-    let perm = from_prot(prot); // 提取权限
+    let perm = MmapProt::from_bits(prot as u32).unwrap().into(); // 提取权限
     let mut new_areas = Vec::new();
     let mut is_find = false;
 
@@ -562,7 +593,7 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     let mut process_area = |areas: &mut Vec<MapArea>, area_id: i32, is_find: &mut bool| {
         for ele in areas {
             if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
-                log_debug!("check ({},{})",ele.vpn_range.l,ele.vpn_range.r);
+     //           log_debug!("check ({},{})",ele.vpn_range.l,ele.vpn_range.r);
                 let mut op = -1;
                 new_areas = ele.split_vpn_range(&mut split_range, perm, &mut op);
                 *is_find = true;
@@ -585,21 +616,24 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     // 检查 mmap_area、heap_area、areas，并在找到后停止
     let mut target_area_id = None;
     if !is_find {
-        log_debug!("check normal");
+   //     log_debug!("check normal");
         target_area_id = process_area(&mut inner.memory_set.areas, 0, &mut is_find);
     }
     if !is_find && target_area_id.is_none() {
-        log_debug!("check mmap");
+  //      log_debug!("check mmap");
         target_area_id = process_area(&mut inner.memory_set.mmap_area, 1, &mut is_find);
     }
     if !is_find && target_area_id.is_none() {
-        log_debug!("check heap");
+  //      log_debug!("check heap");
         target_area_id = process_area(&mut inner.memory_set.heap_area, 2, &mut is_find);
 }
 
     // 新区间插入对应area
     for new_area in new_areas {
         if let Some(area) = new_area {
+            for (vpn,frame) in area.data_frames.iter(){
+                inner.memory_set.page_table.map_page(*vpn, frame.ppn, area.map_perm.into(), arch::pagetable::MappingSize::Page4KB);
+            }
             match target_area_id {
                 Some(0) => inner.memory_set.areas.push(area),
                 Some(1) => inner.memory_set.mmap_area.push(area),
@@ -609,54 +643,13 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
         }
     }
     inner.memory_set.activate();
-    log_debug!("after mprotect:");
-    inner.memory_set.debug_addr_info();
-
+  //  log_debug!("after mprotect:");
+  //  inner.memory_set.debug_addr_info();
     if is_find {
         Ok(0)
     } else {
         Err(SysError::ENXIO)
     }
-    /* 
-    if (addr.addr() & PAGE_MASK) != 0 {
-        return Err(SysError::EINVAL);
-    }
-    let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    log_debug!("before mprotect:");
-    inner.memory_set.debug_addr_info();
-    //addr-addr+len-1
-    let perm = from_prot(prot); //提取权限
-    // 找到包含addr的区域
-    let mut is_find = false;
-    for ele in &mut inner.memory_set.mmap_area {
-        if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-            ele.map_perm = perm;
-            is_find = true;
-            break;
-        }
-    }
-    if !is_find {
-        for ele in &mut inner.memory_set.heap_area {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
-                is_find = true;
-                break;
-            }
-        }
-    }
-    if !is_find {
-        for ele in &mut inner.memory_set.areas {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
-                break;
-            }
-        }
-    } 
-    log_debug!("after mprotect:");
-    inner.memory_set.debug_addr_info();
-    Ok(0)
-    */
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
