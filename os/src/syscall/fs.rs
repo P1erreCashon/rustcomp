@@ -389,7 +389,10 @@ pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
     let buf = translated_byte_buffer(token, buf, len);
     let mut buf_slice = buf;
     let mut offset = file.get_offset();
-    for dentry in file.get_dentry().get_inner().children.lock().values().skip(*offset){
+    let file_dentry = file.get_dentry();
+    let children = file_dentry.get_inner().children.lock();
+    for dentry in children.values().skip(*offset){
+        let dentry = dentry.upgrade().unwrap();
         if dentry.has_no_inode(){
             *offset+=1;
             continue;

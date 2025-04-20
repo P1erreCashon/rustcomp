@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 device = { path = "../device" }
 system-result = { path = "../system-result" }
-spin = "0.7.0"
+sync = { path = "../sync" }
 bitflags = "2.5"
 downcast-rs = { version = "1.2", default-features = false }
 logger = { path = "../logger" }
 time = { path = "../time" }
 log = "0.4"
+lru = "0.12"
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }

@@ -1,9 +1,10 @@
+use core::num::NonZeroUsize;
 use super::{BLOCK_SZ,DISK_BLOCK_SZ};
 use device::BlockDevice;
-use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use lazy_static::*;
 use spin::Mutex;
+use lru::LruCache;
 /// Cached block inside memory
 pub struct BlockCache {
     /// cached block data
@@ -75,17 +76,17 @@ impl Drop for BlockCache {
         self.sync()
     }
 }
-/// Use a block cache of 16 blocks
-const BLOCK_CACHE_SIZE: usize = 16;
+/// Use a block cache of ? blocks
+const BLOCK_CACHE_SIZE: usize = 4096;
 
 pub struct BlockCacheManager {
-    queue: VecDeque<(usize, Arc<Mutex<BlockCache>>)>,
+    queue: LruCache<usize, Arc<Mutex<BlockCache>>>,
 }
 
 impl BlockCacheManager {
     pub fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
+          queue: LruCache::new(NonZeroUsize::new(BLOCK_CACHE_SIZE).unwrap()),
         }
     }
 
@@ -94,29 +95,15 @@ impl BlockCacheManager {
         block_id: usize,
         block_device: Arc<dyn BlockDevice>,
     ) -> Arc<Mutex<BlockCache>> {
-        if let Some(pair) = self.queue.iter().find(|pair| pair.0 == block_id) {
-            Arc::clone(&pair.1)
+        if let Some(block) = self.queue.get(&block_id) {
+            block.clone()
         } else {
-            // substitute
-            if self.queue.len() == BLOCK_CACHE_SIZE {
-                // from front to tail
-                if let Some((idx, _)) = self
-                    .queue
-                    .iter()
-                    .enumerate()
-                    .find(|(_, pair)| Arc::strong_count(&pair.1) == 1)
-                {
-                    self.queue.drain(idx..=idx);
-                } else {
-                    panic!("Run out of BlockCache!");
-                }
-            }
-            // load block into mem and push back
+            // load block into mem and push in
             let block_cache = Arc::new(Mutex::new(BlockCache::new(
                 block_id,
                 Arc::clone(&block_device),
             )));
-            self.queue.push_back((block_id, Arc::clone(&block_cache)));
+            self.queue.push(block_id, Arc::clone(&block_cache));
             block_cache
         }
     }

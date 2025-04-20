@@ -59,15 +59,16 @@ impl OSInode {
         }
         v
     }
-}*/
+}*/ 
 ///List all files in the filesystems
 pub fn list_apps() {
-    println!("/**** APPS ****");
+   /*  println!("/**** APPS ****");
     let root_dentry = get_root_dentry();
+   
     for app in root_dentry.ls(){
         println!("{}", app);
     }
-   println!("**************/");
+   println!("**************/");*/
 }
 ///
 pub fn create_file(path:&str,type_:DiskInodeType)->SysResult<Arc<dyn Dentry>>{

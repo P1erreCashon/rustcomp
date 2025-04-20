@@ -9,6 +9,6 @@ system-result = { path = "../system-result" }
 easy-fs = { path = "../easy-fs" }
 ext4 = { path = "../ext4" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-spin = "0.7.0"
 device = { path = "../device" }
 config = { path = "../config" }
+sync = { path = "../sync" }

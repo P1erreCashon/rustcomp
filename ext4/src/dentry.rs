@@ -1,4 +1,4 @@
-use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags,RenameFlags};
+use vfs_defs::{Dentry, DentryInner, DentryState, DiskInodeType, File, FileInner, Inode, InodeMeta, OpenFlags,RenameFlags,alloc_dentry,InodeMode};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::{String,ToString};
@@ -24,6 +24,9 @@ impl Dentry for Ext4Dentry{
     fn get_inner(&self) -> &DentryInner {
         &self.inner
     }
+    fn self_arc(self:Arc<Self>) -> Arc<dyn Dentry> {
+        self.clone()
+    }
     fn concrete_create(self: Arc<Self>, name: &str, _type:DiskInodeType) -> SysResult<Arc<dyn Dentry>> {
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
         let mut inode_num = self.get_inode()?.downcast_arc::<Ext4Inode>().map_err(|_| SysError::ENOENT)?.get_meta().ino as u32;
@@ -42,9 +45,10 @@ impl Dentry for Ext4Dentry{
                 return Err(SysError::EISDIR);
             }
         }
-        let child_inode = Ext4Inode::new(InodeMeta::new(child_ino.unwrap() as usize, sblock),);
+        let child_inode = Ext4Inode::new(InodeMeta::new(InodeMode::from_type(_type),child_ino.unwrap() as usize, sblock),);
         child_inode.set_type(_type);
         child_dir.set_inode(Arc::new(child_inode));
+        *child_dir.get_state() = DentryState::Valid;
         Ok(child_dir)
     }
     fn concrete_link(self: Arc<Self>, new: &Arc<dyn Dentry>) -> SysResult<()> {
@@ -69,40 +73,21 @@ impl Dentry for Ext4Dentry{
     }
     fn load_dir(self:Arc<Self>)->SysResult<()> {
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
-        for (name,child) in self.get_inner().children.lock().iter(){
-            if name == "." || name == ".."{
+        let entries = sblock.ext4fs.dir_get_entries(self.get_inode().unwrap().get_meta().ino as u32);
+        for entry in entries{ 
+            let name_bytes = &entry.name[..entry.name_len as usize]; // 取前 name_len 个字节
+            let child_dir_name = String::from_utf8_lossy(name_bytes).to_string();
+            if child_dir_name == "." || child_dir_name == ".."{
                 continue;
             }
-            let mut state = child.get_state();
-            if *state == DentryState::Invalid {
-                let path = child.path();
-                let r;
-                r = sblock.ext4fs.ext4_dir_open(path.as_str());
-                if let Err(e) = r {
-                    return match e.error() {
-                        Errno::ENOENT => Err(SysError::ENOENT),
-                        Errno::EINVAL => Err(SysError::EINVAL),
-                        _ => Err(SysError::EINVAL),
-                    }
-                }            
-                let inode_ref = sblock.ext4fs.get_inode_ref(r.unwrap());
-                if inode_ref.inode.is_file(){             
-                    let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock.clone())));
-                    child_inode.set_type(DiskInodeType::File);
-                    child.set_inode(child_inode);
-                } 
-                else{
-                    let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock.clone())));
-                    child_inode.set_type(DiskInodeType::Directory);
-                    child.set_inode(child_inode);            
-                    let sub_child_dir_names = child.clone().ls();
-                    for  sub_child_dir_name in sub_child_dir_names{
-                        let sub_child_dir = child.clone().concrete_new_child(sub_child_dir_name.as_str());
-                        child.add_child(sub_child_dir);
-                    }
+            if let Some(child) = self.clone().get_child(child_dir_name.as_str()){
+                let mut state = child.get_state();
+                if *state == DentryState::Invalid {
+                    self.clone().concrete_lookup(child_dir_name.as_str())?;
+                    *state = DentryState::Valid;
+                    drop(state);
                 }
-                *state = DentryState::Valid;
-                drop(state);
+                else{drop(state);}
             }
         }
         Ok(())
@@ -122,26 +107,22 @@ impl Dentry for Ext4Dentry{
         }            
         let inode_ref = sblock.ext4fs.get_inode_ref(r.unwrap());
         if inode_ref.inode.is_file(){             
-            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock)));
+            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(InodeMode::FILE,r.unwrap() as usize, sblock)));
             child_inode.set_type(DiskInodeType::File);
             child.set_inode(child_inode);
         } 
         else{
-            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(r.unwrap() as usize, sblock)));
+            let child_inode = Arc::new(Ext4Inode::new(InodeMeta::new(InodeMode::DIR,r.unwrap() as usize, sblock)));
             child_inode.set_type(DiskInodeType::Directory);
             child.set_inode(child_inode);            
-            let sub_child_dir_names = child.clone().ls();
-            for  sub_child_dir_name in sub_child_dir_names{
-                let sub_child_dir = child.clone().concrete_new_child(sub_child_dir_name.as_str());
-                child.add_child(sub_child_dir);
-            }
         }
         Ok(child)
 
     }
     fn concrete_new_child(self: Arc<Self>, _name: &str) -> Arc<dyn Dentry> {
         let dyn_dentry:Arc<dyn Dentry> = self.clone();
-        let child_dir = Arc::new(Ext4Dentry::new(DentryInner::new(String::from(_name), self.get_superblock(),Some(Arc::downgrade(&dyn_dentry)))));
+        let child_dir = Arc::new(Ext4Dentry::new(DentryInner::new(String::from(_name), self.get_superblock(),Some(dyn_dentry.clone()))));
+        alloc_dentry(Some(&dyn_dentry), _name, child_dir.clone());
         return child_dir;
     }
     fn concrete_unlink(self: Arc<Self>, old: &Arc<dyn Dentry>) -> SysResult<()> {
@@ -218,6 +199,19 @@ impl Dentry for Ext4Dentry{
         }
         Ok(())
     }
+    fn concrete_getchild(self:Arc<Self>, name: &str) -> Option<Arc<dyn Dentry>> {
+        let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT).unwrap();
+        let entries = sblock.ext4fs.dir_get_entries(self.get_inode().unwrap().get_meta().ino as u32);
+        for entry in entries{ 
+            let name_bytes = &entry.name[..entry.name_len as usize]; // 取前 name_len 个字节
+            let child_dir_name = String::from_utf8_lossy(name_bytes).to_string();
+            if child_dir_name == name{
+                let child = self.clone().concrete_new_child(name);
+                return Some(child);
+            }
+        }
+        None
+    }
     fn open(self:Arc<Self>,flags:OpenFlags)->Arc<dyn File> {
         let len = self.get_inode().unwrap().get_size();
         let file = Arc::new(Ext4ImplFile::new(FileInner::new(self)));        
@@ -227,6 +221,7 @@ impl Dentry for Ext4Dentry{
         *file.get_inner().flags.lock() = flags;
         file
     }
+    /*
     fn ls(self:Arc<Self>)->Vec<String> {
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT).unwrap();
         let entries = sblock.ext4fs.dir_get_entries(self.get_inode().unwrap().get_meta().ino as u32);
@@ -239,5 +234,11 @@ impl Dentry for Ext4Dentry{
             names.push(child_dir_name);
         }
         names
+    } */
+}
+
+impl Drop for Ext4Dentry{
+    fn drop(&mut self) {
+        self.on_drop();
     }
 }

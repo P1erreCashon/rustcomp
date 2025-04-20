@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::vec;
-use buffer::get_block_cache;
-use buffer::{BLOCK_SZ,DataBlock,DISK_BLOCK_SZ};
+use buffer::{get_block_cache,DataBlock};
+use config::{BLOCK_SZ,DISK_BLOCK_SZ};
 
 pub struct Ext4Disk{
     dev:Arc<dyn device::BlockDevice>

@@ -1,4 +1,4 @@
-use vfs_defs::{Dentry, DentryInner, FileSystemType, FileSystemTypeInner, Inode, InodeMeta, SuperBlock, SuperBlockInner};
+use vfs_defs::{Dentry, DentryInner, FileSystemType, FileSystemTypeInner, Inode, InodeMeta, SuperBlock, SuperBlockInner,InodeMode};
 use alloc::sync::Arc;
 use system_result::SysResult;
 use device::BlockDevice;
@@ -30,7 +30,7 @@ impl FileSystemType for Ext4ImplFsType{
         let inner = SuperBlockInner::new(device, self.clone());
         let superblock = Arc::new(Ext4Superblock::new(inner));
         let root_ino= 2;
-        let root_inode = Arc::new(Ext4Inode::new(InodeMeta::new(root_ino, superblock.clone())));
+        let root_inode = Arc::new(Ext4Inode::new(InodeMeta::new(InodeMode::DIR,root_ino, superblock.clone())));
         root_inode.set_type(vfs_defs::DiskInodeType::Directory);
         let root_dentry;
         let abs_mount_path;
@@ -42,7 +42,7 @@ impl FileSystemType for Ext4ImplFsType{
         else{
             path = parent.as_ref().unwrap().path()+name;
             abs_mount_path = path.as_str();
-            root_dentry = Arc::new(Ext4Dentry::new(DentryInner::new(name.to_string(), superblock.clone(),Some(Arc::downgrade(&parent.unwrap())))));
+            root_dentry = Arc::new(Ext4Dentry::new(DentryInner::new(name.to_string(), superblock.clone(),Some(parent.unwrap()))));
         }
         log_debug!("abs_m_path:{}",abs_mount_path);
         root_dentry.set_inode(root_inode);

@@ -7,14 +7,15 @@ mod dentry;
 mod superblock;
 mod filesystemtype;
 mod file;
+mod dentry_cache;
 #[macro_use]
 extern crate logger;
 pub use filesystemtype::{FileSystemType,FileSystemTypeInner,MountFlags};
 pub use dentry::{Dentry,DentryInner,DentryState};
 pub use superblock::{SuperBlock,SuperBlockInner};
-pub use inode::{Inode,InodeMeta,InodeMetaInner,DiskInodeType,InodeState};
+pub use inode::{Inode,InodeMeta,InodeMetaInner,DiskInodeType,InodeState,InodeMode};
 pub use file::{File,FileInner,OpenFlags,UserBuffer,UserBufferIterator,SeekFlags};
-
+pub use dentry_cache::{DENTRY_CACHE_MANAGER,alloc_dentry,intenal_to_leaf,dcache_lookup,dcache_drop};
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 #[repr(C)]
 ///
@@ -119,4 +120,36 @@ bitflags::bitflags! {
         /// This operation makes sense only for overlay/union filesystem implementations.
         const RENAME_WHITEOUT = 1 << 2;
     }
+}
+
+use lazy_static::*;
+use sync::Mutex;
+///Pid Allocator struct
+pub struct InoAllocator {
+    current: usize,
+}
+
+impl InoAllocator {
+    ///Create an empty `PidAllocator`
+    pub fn new() -> Self {
+        InoAllocator {
+            current: 3,
+        }
+    }
+    ///Allocate a pid
+    pub fn alloc(&mut self) -> usize {
+            self.current += 1;
+            self.current - 1
+    }
+}
+
+lazy_static! {
+    ///
+        pub static ref INO_ALLOCATOR: Mutex<InoAllocator> =
+        Mutex::new(InoAllocator::new());
+}
+
+///Allocate a pid from PID_ALLOCATOR
+pub fn ino_alloc() -> usize {
+    INO_ALLOCATOR.lock().alloc()
 }
