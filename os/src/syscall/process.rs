@@ -22,10 +22,12 @@ use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
-
-//pub const PAGE_BIT_LEN: usize = 12;
-//pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
+use arch::pagetable::TLB;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
+#[allow(unused)]
+pub const PAGE_BIT_LEN: usize = 12;
+#[allow(unused)]
+pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
 
 bitflags! {
     /// Defined in <bits/sched.h>
@@ -322,6 +324,9 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         }*/
         // 不释放
         // new_brk 应当大于数据段起始 未做判断
+        if new_brk < task_inner.heap_bottom {
+            return Err(SysError::ENXIO);
+        }
         task_inner.heap_top = new_brk;
         return Ok(new_brk as isize);
     //   0
@@ -529,8 +534,8 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
     }
 }
 
-pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> {
-    /* 
+pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
+    
     log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
 
     // 检查地址是否页对齐
@@ -603,7 +608,7 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> 
             }
         }
     }
-
+    inner.memory_set.activate();
     log_debug!("after mprotect:");
     inner.memory_set.debug_addr_info();
 
@@ -611,12 +616,15 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> 
         Ok(0)
     } else {
         Err(SysError::ENXIO)
-    }*/
-    if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
+    }
+    /* 
+    if (addr.addr() & PAGE_MASK) != 0 {
         return Err(SysError::EINVAL);
     }
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
+    log_debug!("before mprotect:");
+    inner.memory_set.debug_addr_info();
     //addr-addr+len-1
     let perm = from_prot(prot); //提取权限
     // 找到包含addr的区域
@@ -645,7 +653,10 @@ pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> 
             }
         }
     } 
+    log_debug!("after mprotect:");
+    inner.memory_set.debug_addr_info();
     Ok(0)
+    */
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {

@@ -61,7 +61,7 @@ use crate::{
         suspend_current_and_run_next, 
     },
 };
-use arch::api::ArchInterface;
+use arch::{api::ArchInterface, PAGE_SIZE};
 use arch::{TrapFrame, TrapFrameArgs, TrapType};
 use arch::addr::PhysPage;
 use crate_interface::impl_interface;
@@ -149,6 +149,7 @@ impl ArchInterface for ArchInterfaceImpl {
                         */
                     }
                     _ => {
+                        println!("errpage = {:x}",_paddr/PAGE_SIZE);
                         println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
                     //      ctx.syscall_ok();
                         exit_current_and_run_next(-1);

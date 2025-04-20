@@ -1,4 +1,6 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
+use core::fmt::Debug;
+
 use super::{frame_alloc, vpn_range, FrameTracker};
 //use super::{PTEFlags, PageTable, PageTableEntry};
 //use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
@@ -16,7 +18,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 use system_result::{SysError,SysResult};
 
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 /*
 lazy_static! { 
 /* a memory set instance through lazy_static! managing kernel space    pub static ref KERNEL_SPACE: Arc<UPSafeCell<MemorySet>> =
@@ -296,7 +298,10 @@ impl MemorySet {
             if ele.map_perm.bits & MapPermission::U.bits != 0 {
                 result.push('U');
             }
-            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            for mp in &ele.data_frames {
+                log_debug!("{} {}", mp.0, mp.1.ppn);
+            }
         }
         log_debug!("heap:");
     
@@ -315,7 +320,10 @@ impl MemorySet {
             if ele.map_perm.bits & MapPermission::U.bits != 0 {
                 result.push('U');
             }
-            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            for mp in &ele.data_frames {
+                log_debug!("{} {}", mp.0, mp.1.ppn);
+            }
         }
         log_debug!("normal:");
     
@@ -334,7 +342,10 @@ impl MemorySet {
             if ele.map_perm.bits & MapPermission::U.bits != 0 {
                 result.push('U');
             }
-            log_debug!("({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            log_debug!("\n({},{}) prot={}",ele.vpn_range.l,ele.vpn_range.r,result);
+            for mp in &ele.data_frames {
+                log_debug!("{} {}", mp.0, mp.1.ppn);
+            }
         }
         log_debug!("\n");
     }
@@ -399,7 +410,8 @@ impl MemorySet {
 pub struct MapArea {
     ///
     pub vpn_range: VPNRange,
-    data_frames: BTreeMap<VirtPage, FrameTracker>,
+    ///
+    pub data_frames: BTreeMap<VirtPage, FrameTracker>,
     ///
     pub map_type: MapType,
     ///
@@ -511,11 +523,23 @@ impl MapArea {
         }
     }
 
+    pub fn transfer_frame(&mut self, new_area: &mut MapArea) {
+        // frame_tracker转移
+        for vpn_num in new_area.vpn_range.l.value()..new_area.vpn_range.r.value() {
+            let vpn = VirtPage::new(vpn_num);
+            // 可能因懒分配失败
+            if let Some(frame) = self.data_frames.remove(&vpn) {
+                // 转移frame到new_area.data_frames
+                new_area.data_frames.insert(vpn, frame);
+            }
+        }
+    }
+
     // 返回分裂出的area,只做vpn_range分裂，不分裂实际物理页，新的area不持有物理页对象
     // 不改变的部分传出再push,改变的部分直接改变权限并调整边界
     // op=5、6 需要继续遍历
     pub fn split_vpn_range(&mut self, range: &mut VPNRange, mp: MapPermission, op: &mut isize) -> Vec<Option<Self>> {
-        let mut result = Vec::new(); // 初始化一个向量来存储结果
+        let mut result = Vec::new();
         // 恰好是一个块
         if range.l == self.vpn_range.l && range.r == self.vpn_range.r {
             self.map_perm = mp;
@@ -525,14 +549,16 @@ impl MapArea {
         else {
             if range.l == self.vpn_range.l && range.r < self.vpn_range.r {
                 *op = 1;
-                let new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.r.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.r.to_addr().into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
                 self.vpn_range.r = range.r;
                 self.map_perm = mp;
                 result.push(Some(new_area));
             }
             else if range.l > self.vpn_range.l && range.r == self.vpn_range.r {
                 *op = 2;
-                let new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
                 self.vpn_range.l = range.l;
                 self.map_perm = mp;
                 result.push(Some(new_area));
@@ -540,8 +566,10 @@ impl MapArea {
             else if range.l > self.vpn_range.l && range.r < self.vpn_range.r {
                 *op = 3;
                 // 在整块中间划开
-                let new_area_left = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
-                let new_area_right = MapArea::new(self.vpn_range.r.to_addr().into(), range.r.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area_left = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area_right = MapArea::new(self.vpn_range.r.to_addr().into(), range.r.to_addr().into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area_left);
+                self.transfer_frame(&mut new_area_right);
                 self.vpn_range.l = range.l;
                 self.vpn_range.r = range.r;
                 self.map_perm = mp;
@@ -555,7 +583,8 @@ impl MapArea {
             }
             else if range.l > self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界不重合
                 *op = 5;
-                let new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
                 self.map_perm = mp;
                 self.vpn_range.l = range.l;
                 range.l = self.vpn_range.r;
