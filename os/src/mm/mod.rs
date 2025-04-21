@@ -19,3 +19,4 @@ pub use heap_allocator::init_heap;
 pub use memory_set::{MapPermission, MemorySet, MapType, MapArea, from_prot};
 use page_table::PTEFlags;
 pub use page_table::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
+pub use vpn_range::VPNRange;

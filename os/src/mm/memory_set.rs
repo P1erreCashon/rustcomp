@@ -1,9 +1,12 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
-use super::{frame_alloc, FrameTracker};
+use core::fmt::Debug;
+
+use super::{frame_alloc, vpn_range, FrameTracker};
 //use super::{PTEFlags, PageTable, PageTableEntry};
 //use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::vpn_range::VPNRange;
 use alloc::alloc::dealloc;
+use alloc::string::String;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use arch::{USER_VADDR_END,PAGE_SIZE};
@@ -13,9 +16,9 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
+use system_result::{SysError,SysResult};
 
-//const MODULE_LEVEL:log::Level = log::Level::Info;
-
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 /*
 lazy_static! { 
 /* a memory set instance through lazy_static! managing kernel space    pub static ref KERNEL_SPACE: Arc<UPSafeCell<MemorySet>> =
@@ -69,6 +72,28 @@ impl MemorySet {
             map_area.copy_data(&self.page_table, data);
         }
         self.heap_area.push(map_area);
+    }
+    pub fn push_into_heaparea_lazy_while_clone(&mut self,mut map_area: MapArea) { 
+        for vpn in map_area.vpn_range {
+            //self.map_one(page_table, vpn);
+            if self.page_table.translate(vpn.into()).is_some(){
+                map_area.map_one(&self.page_table, vpn);
+            }  
+        }
+        self.heap_area.push(map_area);
+    }
+    /// 分配+映射->heap_area
+    pub fn push_into_heaparea_lazy(&mut self, map_area: MapArea) { 
+        self.heap_area.push(map_area);
+    }
+    pub fn handle_lazy_addr(&mut self,addr:usize)->SysResult<()>{
+        for area in self.heap_area.iter_mut(){
+            if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
+                area.map_one(&self.page_table, VirtPage::new(addr/PAGE_SIZE));
+                return Ok(());
+            }
+        }
+        return Err(SysError::EADDRNOTAVAIL);
     }
     /// 分配+映射->mmap_area
     pub fn push_into_mmaparea(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
@@ -138,14 +163,13 @@ impl MemorySet {
 
         let heap_start:usize =  max_virt_mem.try_into().unwrap();
         let heap_top: usize = heap_start + USER_HEAP_SIZE;
-        memory_set.push(
+        memory_set.push_into_heaparea_lazy(
             MapArea::new(
                 heap_start.into(),
                 heap_top.into(),
                 MapType::Framed,
                 MapPermission::R | MapPermission::W | MapPermission::U,
             ),
-            None,
         );
         // map user stack with U flags
         // let max_end_va: VirtAddr = max_end_vpn.into();
@@ -153,7 +177,6 @@ impl MemorySet {
         // guard page
         let user_stack_top = USER_STACK_TOP; //8G
         let user_stack_bottom = user_stack_top - USER_STACK_SIZE;
-        //println!("heaptop:{:x} user_stack_bottom:{:x}",heap_top,user_stack_top);
         memory_set.push(
             MapArea::new(
                 user_stack_bottom.into(),
@@ -195,15 +218,23 @@ impl MemorySet {
         // copy heap_area (可能出错)
         for area in user_space.heap_area.iter() {
             let new_area = MapArea::from_another(area);
-            memory_set.push_into_heaparea(new_area, None);
+            memory_set.push_into_heaparea_lazy_while_clone(new_area);
+       //     println!("fork from user push heap");
             // copy data from another space
             for vpn in area.vpn_range {
-                let src_ppn = user_space.translate(vpn).unwrap().0;
-                let dst_ppn = memory_set.translate(vpn).unwrap().0;
+                if let Some(src_ppn) = user_space.translate(vpn){
+                    if src_ppn.0.to_addr() != 0 {
+                  //      println!("vpn:{:x} ppn:{:x}",vpn.to_addr(),src_ppn.0.to_addr());
+                        let dst_ppn = memory_set.translate(vpn).unwrap();
+                        dst_ppn.0.get_buffer().copy_from_slice(src_ppn.0.get_buffer())
+                    }
+                    
+
+                }
+                
               //  dst_ppn
                 //    .get_bytes_array()
                   //  .copy_from_slice(src_ppn.get_bytes_array());
-                  dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
             }
         }
         //copy mmap_area (可能出错)
@@ -246,6 +277,14 @@ impl MemorySet {
             0 // 成功找到并移除，返回 0 或其他表示成功的值
         } else {
             -1 // 未找到，返回 -1 或其他表示失败的值
+        }
+    }
+    ///
+    pub fn debug_addr_info(&self) {
+        log_debug!("normal:");
+    
+        for ele in &self.areas {
+            println!("{:x} {:x} {:x} {:x}",ele.vpn_range.get_start_addr().addr(),ele.vpn_range.get_end_addr().addr(),ele.vpn_range.get_start().to_addr(),ele.vpn_range.get_end().to_addr());
         }
     }
 }
@@ -309,7 +348,8 @@ impl MemorySet {
 pub struct MapArea {
     ///
     pub vpn_range: VPNRange,
-    data_frames: BTreeMap<PhysPage, FrameTracker>,
+    ///
+    pub data_frames: BTreeMap<VirtPage, FrameTracker>,
     ///
     pub map_type: MapType,
     ///
@@ -345,11 +385,10 @@ impl MapArea {
             //map_perm: another.map_perm.clone(),
         }
     }
-    ///
-    pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPage) {
+    pub fn map_one(&mut self, page_table: &Arc<PageTableWrapper>, vpn: VirtPage) {
         let frame = frame_alloc().unwrap();
         let ppn: PhysPage = frame.ppn;
-        self.data_frames.insert(ppn, frame);
+        self.data_frames.insert(vpn, frame);
         /*match self.map_type {
             MapType::Identical => {
                 ppn = PhysPageNum(vpn.0);
@@ -363,13 +402,13 @@ impl MapArea {
         //let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map_page(vpn, ppn, self.map_perm.into(),MappingSize::Page4KB);
     }
-    ///
+    /*
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPage, ppn: PhysPage) {
         if self.map_type == MapType::Framed {
             self.data_frames.remove(&ppn);
         }
         page_table.unmap_page(vpn);
-    }
+    }*/
     ///
     pub fn map(&mut self, page_table: &Arc<PageTableWrapper>) {
         for vpn in self.vpn_range {
@@ -377,9 +416,10 @@ impl MapArea {
             let p_tracker = frame_alloc().expect("can't allocate frame");
             //println!("vpn={},ppn={}",vpn,p_tracker.ppn);
             page_table.map_page(vpn, p_tracker.ppn, self.map_perm.into(), MappingSize::Page4KB);
-            self.data_frames.insert(p_tracker.ppn, p_tracker);   
+            self.data_frames.insert(vpn, p_tracker);   
         }
-    } /* 
+    } 
+    /* 
     pub fn unmap(&mut self, page_table: &mut PageTable) {
         for vpn in self.vpn_range {
             self.unmap_one(page_table, vpn);
@@ -418,6 +458,85 @@ impl MapArea {
             }
             // current_vpn.step();
             current_vpn = current_vpn + 1;
+        }
+    }
+
+    pub fn transfer_frame(&mut self, new_area: &mut MapArea) {
+        // frame_tracker转移
+        for vpn_num in new_area.vpn_range.l.value()..new_area.vpn_range.r.value() {
+            let vpn = VirtPage::new(vpn_num);
+            // 可能因懒分配失败
+            if let Some(frame) = self.data_frames.remove(&vpn) {
+                // 转移frame到new_area.data_frames
+                new_area.data_frames.insert(vpn, frame);
+            }
+        }
+    }
+
+    // 返回分裂出的area,只做vpn_range分裂，不分裂实际物理页，新的area不持有物理页对象
+    // 不改变的部分传出再push,改变的部分直接改变权限并调整边界
+    // op=5、6 需要继续遍历
+    pub fn split_vpn_range(&mut self, range: &mut VPNRange, mp: MapPermission, op: &mut isize) -> Vec<Option<Self>> {
+        let mut result = Vec::new();
+        // 恰好是一个块
+        if range.l == self.vpn_range.l && range.r == self.vpn_range.r {
+            self.map_perm = mp;
+            *op = 0;
+            result
+        }
+        else {
+            if range.l == self.vpn_range.l && range.r < self.vpn_range.r {
+                *op = 1;
+                let mut new_area = MapArea::new(range.r.to_addr().into(), self.vpn_range.end, self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
+                self.vpn_range.r = range.r;
+                self.vpn_range.end = range.r.into();
+                self.map_perm = mp;
+                result.push(Some(new_area));
+            }
+            else if range.l > self.vpn_range.l && range.r == self.vpn_range.r {
+                *op = 2;
+                let mut new_area = MapArea::new(self.vpn_range.l.to_addr().into(), range.l.to_addr().into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
+                self.vpn_range.l = range.l;
+                self.vpn_range.start = range.l.into();
+                self.map_perm = mp;
+                result.push(Some(new_area));
+            }
+            else if range.l > self.vpn_range.l && range.r < self.vpn_range.r {
+                *op = 3;
+                // 在整块中间划开
+                let mut new_area_left = MapArea::new(self.vpn_range.start, range.l.to_addr().into(), self.map_type, self.map_perm);
+                let mut new_area_right = MapArea::new(range.r.into(), self.vpn_range.end, self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area_left);
+                self.transfer_frame(&mut new_area_right);
+                self.vpn_range.l = range.l;
+                self.vpn_range.r = range.r;
+                self.vpn_range.end = range.r.into();
+                self.vpn_range.start = range.l.into();
+                self.map_perm = mp;
+                result.push(Some(new_area_left));
+                result.push(Some(new_area_right));
+            }
+            else if range.l == self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界重合
+                *op = 4;
+                self.map_perm = mp;
+                range.l = self.vpn_range.r;
+            }
+            else if range.l > self.vpn_range.l && range.r > self.vpn_range.r { //range有部分在area外且左边界不重合
+                *op = 5;
+                let mut new_area = MapArea::new(self.vpn_range.start, range.l.into(), self.map_type, self.map_perm);
+                self.transfer_frame(&mut new_area);
+                self.map_perm = mp;
+                self.vpn_range.l = range.l;
+                self.vpn_range.start = range.l.into();
+                range.l = self.vpn_range.r;
+                result.push(Some(new_area));
+            }
+            else {
+                panic!("situation not consider in mprotect call");
+            }
+            return result;
         }
     }
 }
@@ -466,16 +585,16 @@ impl Into<MappingFlags> for MapPermission {
 ///
 pub fn from_prot(prot: i32) -> MapPermission {
     let mut perm = MapPermission{bits: 0u8};
-    if prot & 1 != 0 {
+    if prot & 2 != 0 {
         perm |= MapPermission::R; // PROT_READ
     }
-    if prot & 2 != 0 {
+    if prot & 4 != 0 {
         perm |= MapPermission::W; // PROT_WRITE
     }
-    if prot & 4 != 0 {
+    if prot & 8 != 0 {
         perm |= MapPermission::X; // PROT_EXEC
     }
-    if prot & 8 !=0 {
+    if prot & 16 !=0 {
         perm |= MapPermission::U;
     }
     

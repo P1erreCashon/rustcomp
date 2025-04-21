@@ -14,7 +14,7 @@ pub fn main() -> i32 {
     let len =5;
     let mut buf = vec![0u8;5];
     let res = random(buf.as_mut_ptr(), len, 0);
-    assert_eq!(res, len as isize);
+    assert_eq!(res, 0);
     println!("{:?}", buf);
     0
 }

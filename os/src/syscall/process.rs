@@ -12,17 +12,22 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arch::time::{self, Time};
-use arch::{TrapFrameArgs,PAGE_SIZE};
+use arch::{TrapFrameArgs, PAGE_SIZE};
 use crate::drivers::BLOCK_DEVICE;
 use vfs_defs::{DiskInodeType,OpenFlags,Dentry};
 use config::{ USER_STACK_SIZE,RLimit,Resource};
 use arch::addr::{PhysPage, VirtAddr, VirtPage};
-use crate::mm::{MapPermission, MapArea, from_prot};
+use crate::mm::{MapPermission, MapArea, from_prot, VPNRange};
 use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+use arch::pagetable::TLB;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
+#[allow(unused)]
+pub const PAGE_BIT_LEN: usize = 12;
+#[allow(unused)]
+pub const PAGE_MASK: usize = (1 << PAGE_BIT_LEN) - 1;
 
 bitflags! {
     /// Defined in <bits/sched.h>
@@ -229,7 +234,33 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
     task_inner.cwd = dentry;
     Ok(0)
 }
-
+pub fn lazy_brk(error_addr: usize) -> SysResult<isize> {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.handle_lazy_addr(error_addr)?;
+    /* 
+    if error_addr >= inner.max_data_addr && error_addr < inner.heap_top {
+        let cur_addr = VirtAddr::new(inner.max_data_addr).floor();
+        let new_addr = VirtAddr::new(error_addr).ceil();
+        let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
+        let alloc_start_addr = inner.max_data_addr;
+ 
+        inner.memory_set.push_into_heaparea(
+            MapArea::new(
+                VirtAddr::new(alloc_start_addr),
+                VirtAddr::new(error_addr),
+                MapType::Framed,
+                MapPermission::R | MapPermission::U | MapPermission::W | MapPermission::X,
+            ),
+            None,
+        );
+ 
+        inner.max_data_addr += PAGE_SIZE * page_count;
+        return Ok(0);
+    }*/
+ 
+    Ok(0)
+}
 
 pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
     let task = current_task().unwrap();
@@ -258,14 +289,13 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         
         let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
         let alloc_start_addr = task_inner.max_data_addr;
-        task_inner.memory_set.push_into_heaparea(
+        task_inner.memory_set.push_into_heaparea_lazy(
             MapArea::new(
                 VirtAddr::new(alloc_start_addr), //向下
                 VirtAddr::new(new_brk), //向上
                 MapType::Framed,
                 MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
             ),
-            None
         );
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
@@ -294,6 +324,9 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         }*/
         // 不释放
         // new_brk 应当大于数据段起始 未做判断
+        if new_brk < task_inner.heap_bottom {
+            return Err(SysError::ENXIO);
+        }
         task_inner.heap_top = new_brk;
         return Ok(new_brk as isize);
     //   0
@@ -476,12 +509,7 @@ pub fn sys_get_random(buf: *mut u8, len: usize, _flags: usize) -> SysResult<isiz
             let t = Time::now().to_usec();
             //println!("time={}",t);
             byte <<= 1;
-            if t/2*2 == t { //0
-                byte |= 0;
-            }
-            else { //1
-                byte |= 1;
-            }
+            byte |= (t & 1) as u8;
         }
         let buf_ref = translated_refmut(token, buf.wrapping_add(index * 1));
         *buf_ref = byte;
@@ -506,41 +534,122 @@ pub fn sys_log(log_type: usize, _buf: *mut u8, _len: usize) -> SysResult<isize> 
     }
 }
 
-pub fn sys_mprotect(addr: VirtAddr, _len: usize, prot: i32) -> SysResult<isize> {
-    if addr.addr() / PAGE_SIZE *PAGE_SIZE != addr.addr() {
+// For Mmap
+bitflags! {
+    /// Mmap permissions
+    pub struct MmapProt: u32 {
+        /// None
+        const PROT_NONE = 0;
+        /// Readable
+        const PROT_READ = 1 << 0;
+        /// Writable
+        const PROT_WRITE = 1 << 1;
+        /// Executable
+        const PROT_EXEC = 1 << 2;
+    }
+}
+
+impl From<MmapProt> for MapPermission {
+    fn from(prot: MmapProt) -> Self {
+        let mut map_permission = MapPermission::U;
+        if prot.contains(MmapProt::PROT_READ) {
+            map_permission |= MapPermission::R;
+        }
+        if prot.contains(MmapProt::PROT_WRITE) {
+            map_permission |= MapPermission::W;
+        }
+        if prot.contains(MmapProt::PROT_EXEC) {
+            map_permission |= MapPermission::X;
+        }
+        map_permission
+    }
+}
+
+
+pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
+
+   // log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
+
+    // 检查地址是否页对齐
+    if (addr.addr() & PAGE_MASK) != 0 {
         return Err(SysError::EINVAL);
     }
+
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
-    //addr-addr+len-1
-    let perm = from_prot(prot); //提取权限
-    // 找到包含addr的区域
+
+   // log_debug!("before mprotect:");
+   // inner.memory_set.debug_addr_info();
+
+    // 计算虚拟页范围
+    let start_vpn: VirtPage = addr.floor().into();
+    let end_vpn: VirtPage = VirtAddr::new(addr.addr() + len - 1).ceil().into();
+    let mut split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
+    let perm = MmapProt::from_bits(prot as u32).unwrap().into(); // 提取权限
+    let mut new_areas = Vec::new();
     let mut is_find = false;
-    for ele in &mut inner.memory_set.mmap_area {
-        if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-            ele.map_perm = perm;
-            is_find = true;
-            break;
+
+    // 定义查找区域的辅助函数
+    let mut process_area = |areas: &mut Vec<MapArea>, area_id: i32, is_find: &mut bool| {
+        for ele in areas {
+            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
+     //           log_debug!("check ({},{})",ele.vpn_range.l,ele.vpn_range.r);
+                let mut op = -1;
+                new_areas = ele.split_vpn_range(&mut split_range, perm, &mut op);
+                *is_find = true;
+
+                // 根据操作类型决定是否终止
+                if matches!(op, 1 | 2 | 3 | 4) {
+                    return Some(area_id); // 找到并处理完成
+                }
+                else if matches!(op, 5 | 6) {
+                    continue; // 继续处理
+                }
+                else {
+                    panic!("op error in mprotect call");
+                }
+            }
         }
-    }
+        None
+    };
+
+    // 检查 mmap_area、heap_area、areas，并在找到后停止
+    let mut target_area_id = None;
     if !is_find {
-        for ele in &mut inner.memory_set.heap_area {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
-                is_find = true;
-                break;
+   //     log_debug!("check normal");
+        target_area_id = process_area(&mut inner.memory_set.areas, 0, &mut is_find);
+    }
+    if !is_find && target_area_id.is_none() {
+  //      log_debug!("check mmap");
+        target_area_id = process_area(&mut inner.memory_set.mmap_area, 1, &mut is_find);
+    }
+    if !is_find && target_area_id.is_none() {
+  //      log_debug!("check heap");
+        target_area_id = process_area(&mut inner.memory_set.heap_area, 2, &mut is_find);
+}
+
+    // 新区间插入对应area
+    for new_area in new_areas {
+        if let Some(area) = new_area {
+            for (vpn,frame) in area.data_frames.iter(){
+                inner.memory_set.page_table.map_page(*vpn, frame.ppn, area.map_perm.into(), arch::pagetable::MappingSize::Page4KB);
+            }
+            match target_area_id {
+                Some(0) => inner.memory_set.areas.push(area),
+                Some(1) => inner.memory_set.mmap_area.push(area),
+                Some(2) => inner.memory_set.heap_area.push(area),
+                _ => panic!("wrong area_id in mprotect call!"),
             }
         }
     }
-    if !is_find {
-        for ele in &mut inner.memory_set.areas {
-            if ele.vpn_range.get_start_addr() >= addr && ele.vpn_range.get_end_addr() < addr {
-                ele.map_perm = perm;
-                break;
-            }
-        }
-    } 
-    Ok(0)
+    inner.memory_set.activate();
+  //  log_debug!("after mprotect:");
+  //  inner.memory_set.debug_addr_info();
+    if is_find {
+        Ok(0)
+    } else {
+        Err(SysError::ENXIO)
+    }
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
     if let Some(process) = pid2task(pid) {
