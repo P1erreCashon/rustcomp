@@ -2,7 +2,7 @@ use core::f32::consts::E;
 use core::ops::Add;
 
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
-use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
+use crate::mm::{frame_alloc, frame_dealloc, translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
     self, UNAME,add_task, current_task, current_user_token, 
     exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task,
@@ -233,6 +233,20 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
     let mut task_inner = task.inner_exclusive_access();
     task_inner.cwd = dentry;
     Ok(0)
+}
+/// 页错误（只读）-> 复制数据
+pub fn cow(addr: usize) -> SysResult<isize> {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    println!("进程{}:",task.pid.0);
+    match inner.memory_set.handle_cow(addr) {
+        Ok(0) => {
+            Ok(0)
+        }
+        _ => {
+            Ok(-1)
+        }
+    }
 }
 pub fn lazy_brk(error_addr: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
@@ -646,6 +660,18 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
   //  log_debug!("after mprotect:");
   //  inner.memory_set.debug_addr_info();
     if is_find {
+        let mut v: usize = start_vpn.value();
+        while v < end_vpn.value() {
+        let vaddr = VirtAddr::new(VirtPage::new(v).to_addr());
+        if let Some(paddr) = inner.memory_set.page_table.translate(vaddr) {
+            let ppn = PhysPage::from_addr(paddr.0.addr());
+            let vpn =VirtPage::from_addr(vaddr.addr());
+            inner.memory_set.page_table.map_page(vpn, ppn, perm.into(), arch::pagetable::MappingSize::Page4KB);
+        }
+        
+        v += 1;
+        }
+        inner.memory_set.activate();
         Ok(0)
     } else {
         Err(SysError::ENXIO)
