@@ -673,7 +673,7 @@ pub fn sys_sigreturn() -> SysResult<isize> {
 
     // 恢复 trap 上下文
     if let Some(backup) = task_inner.trap_ctx_backup.take() {
-        let sepc = backup.sepc;
+        let sepc = backup[TrapFrameArgs::SEPC];
         *task_inner.get_trap_cx() = backup;
         println!("[kernel] sys_sigreturn: Restoring trap context, sepc={:#x}", sepc);
     } else {

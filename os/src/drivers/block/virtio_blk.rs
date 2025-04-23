@@ -16,6 +16,10 @@ use virtio_drivers::{BufferDirection, Hal};
 #[cfg(target_arch = "riscv64")]
 const VIRTIO0: usize = 0x10001000;
 
+#[allow(unused)]
+#[cfg(target_arch = "loongarch64")]
+const VIRTIO0: usize = 0x10001000;
+
 pub struct VirtIOBlock(Mutex<VirtIOBlk<VirtioHal, MmioTransport>>);
 
 lazy_static! {

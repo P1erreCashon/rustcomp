@@ -133,7 +133,7 @@ impl ArchInterface for ArchInterfaceImpl {
                     current_trap_cx().sepc,
                 );
                 */
-                println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
+                println!("err {:x?},sepc:{:x}", trap_type,ctx[TrapFrameArgs::SEPC]);
           //      ctx.syscall_ok();
                 exit_current_and_run_next(-1);
             }
@@ -180,6 +180,13 @@ impl ArchInterface for ArchInterfaceImpl {
     //    board::device_init();
         device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
         vfs::init();
+        let superblock = vfs::get_root_dentry().get_superblock();
+        let dev = vfs::get_root_dentry().lookup("dev").unwrap();
+        let ttyinner = vfs_defs::DentryInner::new(alloc::string::String::from("tty"), superblock.clone(),Some(dev));
+        let ttydentry = fs::StdioDentry::new(ttyinner);
+        let ttyinode = fs::StdioInode::new(vfs_defs::InodeMeta::new(vfs_defs::InodeMode::CHAR, vfs_defs::ino_alloc() as usize, superblock));
+        vfs::add_tty(ttydentry,alloc::sync::Arc::new( ttyinode));
+
         fs::list_apps();
         task::add_initproc();
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;

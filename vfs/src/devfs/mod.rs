@@ -1,6 +1,8 @@
 use vfs_defs::{FileSystemType,FileSystemTypeInner,SuperBlock,SuperBlockInner,Dentry,MountFlags,InodeMode,DentryState};
 use alloc::{string::String, sync::Arc};
 use device::BlockDevice;
+use crate::get_root_dentry;
+
 use super::{MemDentry,MemInode,add_vfs_dentry};
 use system_result::SysResult;
 mod tty;
@@ -71,6 +73,16 @@ pub fn init_devfs(root_dentry: Arc<dyn Dentry>) -> SysResult<()> {
     add_vfs_dentry(shm_dentry);
 
     Ok(())
+}
+
+pub fn add_tty(ttydentry:Arc<dyn Dentry>,ttyinode:Arc<dyn vfs_defs::Inode>){
+    let root_dentry = get_root_dentry();
+    let dev = root_dentry.lookup("dev").unwrap();
+    *ttyinode.get_meta()._type.lock() = vfs_defs::DiskInodeType::File;
+    ttydentry.set_inode(ttyinode);
+    *ttydentry.get_state() = DentryState::Valid;
+    dev.add_child(ttydentry.clone());
+    add_vfs_dentry(ttydentry);
 }
 
 pub struct DevFsType {

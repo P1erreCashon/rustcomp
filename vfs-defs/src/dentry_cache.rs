@@ -9,7 +9,7 @@ use alloc::{
 };
 use lru::LruCache;
 use super::Dentry;
-const DENTRY_LRU_SIZE:usize = 50;//must be bigger than max dir size,or getdents will be wrong
+const DENTRY_LRU_SIZE:usize = 400;//must be bigger than max dir size,or getdents will be wrong
 pub struct DentryCache{
     intenal_list:BTreeMap<(usize,String),Arc<dyn Dentry>>,
     leaf_list:LruCache<(usize,String),Arc<dyn Dentry>>,
@@ -124,4 +124,18 @@ pub fn dcache_drop(){
     DROPLIST
     .lock()
     .empty_droplist();
+}
+///
+pub fn dcache_sync_call(){
+    let mut manager = DENTRY_CACHE_MANAGER.lock();
+    while !manager.leaf_list.is_empty(){
+        if let Some(((_f,_n),old)) = manager.leaf_list.pop_lru(){
+            DROPLIST.lock().drop_list.push(old);
+        }
+    }
+    while !manager.intenal_list.is_empty(){
+        if let Some(((_f,_n),old)) = manager.intenal_list.pop_first(){
+            DROPLIST.lock().drop_list.push(old);
+        }
+    }
 }

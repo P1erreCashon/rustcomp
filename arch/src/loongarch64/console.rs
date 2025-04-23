@@ -4,7 +4,7 @@ use spin::Mutex;
 
 use crate::VIRT_ADDR_START;
 
-const UART_ADDR: usize = 0x01FE001E0 | VIRT_ADDR_START;
+const UART_ADDR: usize = 0x01FE20000 | VIRT_ADDR_START;
 
 static COM1: Mutex<Uart> = Mutex::new(Uart::new(UART_ADDR));
 

@@ -15,7 +15,7 @@ pub use dentry::{Dentry,DentryInner,DentryState};
 pub use superblock::{SuperBlock,SuperBlockInner};
 pub use inode::{Inode,InodeMeta,InodeMetaInner,DiskInodeType,InodeState,InodeMode};
 pub use file::{File,FileInner,OpenFlags,UserBuffer,UserBufferIterator,SeekFlags};
-pub use dentry_cache::{DENTRY_CACHE_MANAGER,alloc_dentry,intenal_to_leaf,dcache_lookup,dcache_drop};
+pub use dentry_cache::{DENTRY_CACHE_MANAGER,alloc_dentry,intenal_to_leaf,dcache_lookup,dcache_drop,dcache_sync_call};
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq)]
 #[repr(C)]
 ///

@@ -61,8 +61,8 @@ impl FdTable{
         let superblock = new_devfssuper();
         let stdininner = DentryInner::new(String::from("stdin"), superblock.clone(),None);
         let stdoutinner = DentryInner::new(String::from("stdout"), superblock,None);
-        let stdindentry = StdioDentry::new(stdininner, true);
-        let stdoutdentry = StdioDentry::new(stdoutinner, false);
+        let stdindentry = StdioDentry::new(stdininner);
+        let stdoutdentry = StdioDentry::new(stdoutinner);
         Self{
             fd_table: vec![
                 // 0 -> stdin

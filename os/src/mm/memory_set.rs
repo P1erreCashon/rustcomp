@@ -102,10 +102,18 @@ impl MemorySet {
 
             let mut interp_dentry: system_result::SysResult<Arc<dyn vfs_defs::Dentry>> = Err(system_result::SysError::ENOENT);
             for interp in interps.into_iter() {
+                println!("dyn:{}",interp);
+              //  if interp == String::from("/lib/ld-linux-riscv64-lp64.so.1"){
+               //     interp = String::from("/lib/libc.so");
+               // }
+                
                 if let Ok(dentry) = path_to_dentry(interp.as_str()) {
                     interp_dentry = Ok(dentry);
                     break;
                 }
+            }
+            if interp_dentry.is_err(){
+                return None;
             }
             let interp_dentry: Arc<dyn vfs_defs::Dentry> = interp_dentry.unwrap();
             let interp_file = interp_dentry.open(vfs_defs::OpenFlags::RDONLY);

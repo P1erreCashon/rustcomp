@@ -3,11 +3,14 @@ use core::task::Poll;
 
 use crate::suspend_current_and_run_next;
 use alloc::sync::{Arc,Weak}; 
-use spin::Mutex;
+use sync::Mutex;
+use vfs_defs::DentryState;
 use vfs_defs::File;
 use vfs_defs::UserBuffer;
 use vfs_defs::FileInner;
-use vfs_defs::{Dentry,PollEvents};
+use vfs_defs::{Dentry,PollEvents,Inode,InodeMeta,DentryInner,OpenFlags,DiskInodeType,RenameFlags,Kstat,ino_alloc,InodeMode,SuperBlock};
+use alloc::string::String;
+use system_result::{SysError,SysResult};
 use crate::sync::UPSafeCell;
 const RING_BUFFER_SIZE: usize = 2048;
 
@@ -74,13 +77,17 @@ impl PipeRingBuffer {
 }
 
 /// Return (read_end, write_end)
-pub fn make_pipe(dentry: Arc<dyn Dentry>) -> (Arc<Pipe>, Arc<Pipe>) {
+pub fn make_pipe(superblock:Arc<dyn SuperBlock>) -> (Arc<Pipe>, Arc<Pipe>) {
+    let pipe_dentry = PipeDentry::new(superblock.clone());
+    let pipe_inode = PipeInode::new(superblock);
+    pipe_dentry.set_inode(pipe_inode);
+    *pipe_dentry.get_state() = DentryState::Valid;
     let buffer = Arc::new(Mutex::new(PipeRingBuffer::new()));
     let read_end = Arc::new(
-        Pipe::read_end_with_buffer(buffer.clone(), dentry.clone())
+        Pipe::read_end_with_buffer(buffer.clone(), pipe_dentry.clone())
     );
     let write_end = Arc::new(
-        Pipe::write_end_with_buffer(buffer.clone(), dentry.clone())
+        Pipe::write_end_with_buffer(buffer.clone(), pipe_dentry)
     );
     buffer.lock().set_write_end(&write_end);// 调用 PipeRingBuffer::set_write_end 在管道中保留它的写端的弱引用计数
     (read_end, write_end)
@@ -123,8 +130,9 @@ impl File for Pipe {
         let mut buf_iter = buf.into_iter(); // iterator for reading bytes 
         let mut already_read = 0usize;
         // change task when data inadequate
-        loop {
+
             //let mut ring_buffer = self.buffer.exclusive_access();
+        loop {
             let mut ring_buffer = self.buffer.lock();
             let loop_read = ring_buffer.available_read();
             if loop_read == 0 {
@@ -134,12 +142,10 @@ impl File for Pipe {
                 drop(ring_buffer);
                 suspend_current_and_run_next(); //change task: empty pipe
                 continue;
-            }
+            }    
+            let want_to_read = want_to_read.min(loop_read);
             for _ in 0..loop_read {
                 if let Some(byte_ref) = buf_iter.next() {
-                    /*unsafe {
-                        *byte_ref = ring_buffer.read_byte();
-                    }*/
                     *byte_ref = ring_buffer.read_byte();
                     already_read += 1;
                     if already_read == want_to_read {
@@ -149,6 +155,7 @@ impl File for Pipe {
                     return already_read;
                 }
             }
+            return already_read;
         }
     }
     //需要返回什么？
@@ -183,7 +190,7 @@ impl File for Pipe {
                 suspend_current_and_run_next(); // 切换任务：管道为空
                 continue;
             }
-
+            let want_to_read = want_to_read.min(loop_read);
             for _ in 0..loop_read {
                 if let Some(byte_ref) = buf_iter.next() {
                     *byte_ref = ring_buffer.read_byte(); // 从缓冲区读取一个字节
@@ -241,5 +248,108 @@ impl File for Pipe {
             return PollEvents::POLLIN;
         }
         return PollEvents::POLLOUT;
+    }
+}
+
+pub struct PipeDentry {
+    inner: DentryInner,
+}
+
+impl PipeDentry {
+    pub fn new(
+        superblock:Arc<dyn SuperBlock>
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            inner:DentryInner::new(String::from("pipe"), superblock, None),
+        })
+    }
+}
+impl Dentry for PipeDentry{
+    fn get_inner(&self) -> &DentryInner {
+        &self.inner
+    }
+    fn open(self:Arc<Self>,_flags:OpenFlags)->Arc<dyn File> {
+        unreachable!()
+    }
+    fn concrete_create(self: Arc<Self>, _name: &str, _type:DiskInodeType) -> SysResult<Arc<dyn Dentry>> {
+        Err(SysError::ENOTDIR)
+    }
+    fn concrete_lookup(self: Arc<Self>, _name: &str) -> SysResult<Arc<dyn Dentry>> {
+        Err(SysError::ENOTDIR)
+    }
+    fn concrete_link(self: Arc<Self>, _new: &Arc<dyn Dentry>) -> SysResult<()> {
+        Err(SysError::ENOTDIR)
+    }
+    fn concrete_unlink(self: Arc<Self>, _old: &Arc<dyn Dentry>) -> SysResult<()> {
+        Err(SysError::ENOTDIR)
+    }
+    fn load_dir(self:Arc<Self>)->SysResult<()> {
+        Err(SysError::ENOTDIR)
+    }
+    /* 
+    fn ls(self:Arc<Self>)->Vec<String> {
+        Vec::new()
+    }*/
+    fn concrete_new_child(self: Arc<Self>, _name: &str) -> Arc<dyn Dentry> {
+        unimplemented!()
+    }
+    fn concrete_rename(self: Arc<Self>, _new: Arc<dyn Dentry>, _flags: RenameFlags) -> SysResult<()> {
+        Err(SysError::ENOTDIR)
+    }
+    fn concrete_getchild(self:Arc<Self>, _name: &str) -> Option<Arc<dyn Dentry>> {
+        unimplemented!()
+    }
+    fn self_arc(self:Arc<Self>) -> Arc<dyn Dentry> {
+        unimplemented!()
+    }
+}
+
+pub struct PipeInode{
+    meta:InodeMeta
+}
+impl PipeInode{
+    pub fn new(superblock:Arc<dyn SuperBlock>)->Arc<Self>{
+        Arc::new(Self{
+            meta:InodeMeta::new(InodeMode::FIFO, ino_alloc(), superblock),
+        })
+    }
+}
+impl Inode for PipeInode{
+    fn get_meta(&self) -> &InodeMeta {
+        &self.meta
+    }
+    fn get_attr(&self)->system_result::SysResult<Kstat> {
+            Ok(Kstat{
+                st_dev: 0,
+                st_ino: self.meta.ino as u64,
+                st_mode: self.meta.mode.bits(),
+                st_nlink: 0,
+                st_uid: 0,
+                st_gid: 0,
+                st_rdev: 0,
+                __pad: 0,
+                st_size: self.get_size() as u64,
+                st_blksize: 0,
+                __pad2: 0,
+                st_blocks:0,
+                st_atime_sec: 0,
+                st_atime_nsec: 0,
+                st_mtime_sec: 0,
+                st_mtime_nsec: 0,
+                st_ctime_sec: 0,
+                st_ctime_nsec: 0,
+                unused: 0,
+            })
+
+    }
+    fn load_from_disk(&self) {
+        
+    }
+    fn clear(&self) {
+        
+    }
+    fn get_size(&self) -> u32 {
+        let size = self.meta.inner.lock().size as u32;
+        return size;
     }
 }

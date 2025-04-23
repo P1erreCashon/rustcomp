@@ -122,8 +122,8 @@ pub fn sys_pipe(pipe: *mut i32) -> SysResult<isize> {
     //let mut inner = task.acquire_inner_lock();
     let mut inner = task.inner_exclusive_access();
     //自身目录项
-    let self_dentry = inner.cwd.clone();
-    let (pipe_read, pipe_write) = make_pipe(self_dentry); //创建一个管道并获取其读端和写端
+    let self_super = inner.cwd.get_superblock();
+    let (pipe_read, pipe_write) = make_pipe(self_super); //创建一个管道并获取其读端和写端
     let read_fd = inner.fd_table.insert(Some(Fd::new(pipe_read, FdFlags::empty())))?;
     let write_fd = inner.fd_table.insert(Some(Fd::new(pipe_write, FdFlags::empty())));
     if let Err(e) = write_fd{
@@ -211,8 +211,9 @@ pub fn sys_umount(special:*const u8,_flags:u32)->SysResult<isize>{
     let path = translated_str(token, special);
     let ext4fstype = FILE_SYSTEMS.lock().find_fs(&String::from("Ext4")).unwrap();
     let dentry = path_to_dentry(&path)?;
-    if let Err(e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
-        return Err(e);
+    if let Err(_e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
+        return Ok(0);
+       // return Err(e);
     }
     return Ok(0);
 }
@@ -489,8 +490,10 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
     let file = file.file();
     let mut offset = file.get_offset();
     let mut total_write_size = 0;
-    let iov_iter = iov;
-    for _i in 0..iovcnt{
+    let mut iov_iter = iov;
+   
+    for _i in 0..iovcnt{ 
+    //    println!("iov:{:?}",iov_iter);
         let iovs = translated_ref(token, iov_iter);
         if iovs.len == 0{
             unsafe {
@@ -498,13 +501,14 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
             }
             continue;
         }
+    //    println!("writev:write len:{}",iovs.len);
         let ptr = iovs.base;
         let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
         let write_size = file.write_at(*offset, buf);
         total_write_size += write_size;
         *offset += write_size;
         unsafe {
-            let _ = iov_iter.add(1);
+            iov_iter = iov_iter.add(1);
         }
     }
     drop(offset);

@@ -32,7 +32,8 @@ MODE := release
 KERNEL_ELF := target/$(TARGET)/$(MODE)/os
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
-FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
+#FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
+FS_IMG := ../user/target/riscv64gc-unknown-none-elf/$(MODE)/fs.img
 APPS := ../user/src/bin/*
 
 # BOARD
@@ -62,6 +63,8 @@ build: env $(KERNEL_BIN) fs-img
 
 testbuild: env $(KERNEL_BIN) test-fs-img
 
+rvtestbuild: env $(KERNEL_BIN) rvtest-fs-img
+
 env:
 	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
 	cargo install cargo-binutils
@@ -85,6 +88,15 @@ test-fs-img: $(APPS)
 	@rm -f $(FS_IMG)
 	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
 	@mkfs.ext4 $(FS_IMG)
+#	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+
+rvtest-fs-img: $(APPS)
+	@cd ../user && make build TEST=$(TEST)
+	@rm -f $(FS_IMG)
+	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
+	@cp ../sdcard-rv.img $(FS_IMG)
 #	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
@@ -115,6 +127,8 @@ run: run-inner
 
 test: test-run-inner
 
+rvtest: rvtest-run-inner
+
 #QEMU_ARGS := -machine virt \
 #			 -nographic \
 #			 -bios $(BOOTLOADER) \
@@ -137,6 +151,9 @@ run-inner: build
 	$(QEMU_EXEC)
 
 test-run-inner: testbuild
+	$(QEMU_EXEC)
+
+rvtest-run-inner: rvtestbuild
 	$(QEMU_EXEC)
 
 #debug: qemu-version-check build
