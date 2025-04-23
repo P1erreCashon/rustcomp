@@ -70,7 +70,7 @@ use lazy_static::*;
 //use sync::IntrCell;
 use arch::TrapType::*;
 use log::Record;
-use syscall::lazy_brk;
+use syscall::{lazy_brk, cow};
 //lazy_static! {
     //
   //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
@@ -140,7 +140,8 @@ impl ArchInterface for ArchInterfaceImpl {
                 println!("\nheaptop={} data={}",inner.heap_top,inner.max_data_addr);
                 drop(inner);
                 */
-                match lazy_brk(_paddr) {
+                match cow(_paddr) {
+                
                     Ok(0) => {
                         /*println!("lazy-brk: {}",_paddr);
                         let task=current_task().unwrap();
@@ -149,9 +150,16 @@ impl ArchInterface for ArchInterfaceImpl {
                         */
                     }
                     _ => {
-                        println!("errpage = {:x}",_paddr/PAGE_SIZE);
-                        println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
-                    //      ctx.syscall_ok();
+                        /*match lazy_brk(_paddr) {
+                            Ok(0) => {
+
+                            }
+                            _ => {
+                                
+                            }
+                        }*/
+                        println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                                //      ctx.syscall_ok();
                         exit_current_and_run_next(-1);
                     }
                 }

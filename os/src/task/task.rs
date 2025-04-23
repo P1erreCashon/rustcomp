@@ -24,6 +24,7 @@ use core::mem::size_of;
 use crate::task::SignalFlags;
 use crate::task::signal::SigAction;
 use crate::task::action::SignalActions;
+use crate::syscall::CloneFlags;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
@@ -369,11 +370,18 @@ impl TaskControlBlock {
         // **** release current PCB
     }
     ///
-    pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
+    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags) -> Arc<TaskControlBlock> {
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
         // copy user space(include trap context)
-        let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
+        let memory_set;
+        if flags.contains(CloneFlags::VM) {
+            //memory_set = MemorySet::clone_memoryset(&mut parent_inner.memory_set);
+            memory_set = parent_inner.memory_set.clone();
+        }
+        else {
+            memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
+        }
         // alloc a pid and a kernel stack in kernel space
         let pid_handle = pid_alloc();
         let kstack = KernelStack::new();

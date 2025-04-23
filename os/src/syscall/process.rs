@@ -113,7 +113,7 @@ pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,cti
     }
     let flags = flags.unwrap();
     let current_task = current_task().unwrap();
-    let new_task = current_task.fork();    
+    let new_task = current_task.fork(flags);    
     let new_pid = new_task.pid.0;
     // modify trap context of new_task, because it returns immediately after switching
     let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
@@ -238,7 +238,7 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
 pub fn cow(addr: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
     let mut inner = task.inner_exclusive_access();
-    println!("进程{}:",task.pid.0);
+    //println!("进程{}:",task.pid.0);
     match inner.memory_set.handle_cow(addr) {
         Ok(0) => {
             Ok(0)

@@ -117,7 +117,41 @@ impl PageTable {
         pte_list[vpn.pn_index(0)] = PTE::new_page(ppn, flags.into());
         TLB::flush_vaddr(vpn.into());
     }
-
+    /// 打印pte flag
+    pub fn get_pte_flags(&self, vpn: VirtPage) -> MappingFlags {
+        assert!(
+            vpn.to_addr() <= Self::USER_VADDR_END,
+            "You only should use the address limited by user {}",vpn.to_addr()
+        );
+        assert!(Self::PAGE_LEVEL >= 3, "Just level >= 3 supported currently");
+        let mut pte_list = Self::get_pte_list(self.0);
+        if Self::PAGE_LEVEL == 4 {
+            let pte = &mut pte_list[vpn.pn_index(3)];
+            if !pte.is_valid() {
+                *pte = PTE::new_table(ArchInterface::frame_alloc_persist());
+            }
+            pte_list = Self::get_pte_list(pte.address());
+        }
+        // level 3
+        {
+            let pte = &mut pte_list[vpn.pn_index(2)];
+            if !pte.is_valid() {
+                *pte = PTE::new_table(ArchInterface::frame_alloc_persist());
+            }
+            pte_list = Self::get_pte_list(pte.address());
+        }
+        // level 2
+        {
+            let pte = &mut pte_list[vpn.pn_index(1)];
+            if !pte.is_valid() {
+                *pte = PTE::new_table(ArchInterface::frame_alloc_persist());
+            }
+            pte_list = Self::get_pte_list(pte.address());
+        }
+        // level 1, map page
+        pte_list[vpn.pn_index(0)].flags().into()
+        
+    }
     /// Mapping a page to specific address(kernel space address).
     ///
     /// TODO: This method is not implemented.
