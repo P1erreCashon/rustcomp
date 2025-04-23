@@ -239,53 +239,53 @@ impl MemorySet {
     /// 修改除代码段外的权限为只读，堆申请新页
     pub fn clone_memoryset(user_space: &mut MemorySet) -> MemorySet {
         // 找到最低地址
-        let mut lowest_addr = 3000000;
+        /*let mut lowest_addr = 3000000;
         for area in user_space.areas.iter() {
             if area.vpn_range.get_start_addr().addr() < lowest_addr {
                 lowest_addr = area.vpn_range.get_start_addr().addr();
             }
-        }
+        }*/
         
         // 设置非代码段的权限为只读
         for area in user_space.areas.iter_mut() {
-            if area.vpn_range.get_start_addr().addr() > lowest_addr {
+            
                 for vpn in area.vpn_range {
                     if let Some(frame) = area.data_frames.get(&vpn) {
                         let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, MapPermission::R.into(), arch::pagetable::MappingSize::Page4KB);
+                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
                     }
                 }
                 //user_space.activate();
-                area.map_perm = MapPermission::R;
-            }
+                area.map_perm &= !MapPermission::W;
+            
         }
 
         // mmap->read-only
         for area in user_space.mmap_area.iter_mut() {
-            if area.vpn_range.get_start_addr().addr() > lowest_addr {
+            
                 for vpn in area.vpn_range {
                     if let Some(frame) = area.data_frames.get(&vpn) {
                         let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, MapPermission::R.into(), arch::pagetable::MappingSize::Page4KB);
+                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
                     }
                 }
                 //user_space.activate();
-                area.map_perm = MapPermission::R;
-            }
+                area.map_perm &= !MapPermission::W;
+            
         }
         
         // heap
         for area in user_space.heap_area.iter_mut() {
-            if area.vpn_range.get_start_addr().addr() > lowest_addr {
+            
                 for vpn in area.vpn_range {
                     if let Some(frame) = area.data_frames.get(&vpn) {
                         let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, MapPermission::R.into(), arch::pagetable::MappingSize::Page4KB);
+                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
                     }
                 }
                 //user_space.activate();
-                area.map_perm = MapPermission::R;
-            }
+                area.map_perm &= !MapPermission::W;
+            
         }
         user_space.activate();
         user_space.clone()
@@ -414,7 +414,7 @@ impl MemorySet {
                     }
                 }
                 //其他错误 重映射只能由只读页错误触发
-                if area.map_perm != MapPermission::R {
+                if area.map_perm & MapPermission::W != MapPermission::empty() {
                     panic!("cow page: {:x} addr: {} mappermisson: {} not matched",vpn.value(),addr,area.map_perm.bits());
                 }
                 if let Some(old_frame) = area.data_frames.remove(&vpn) {

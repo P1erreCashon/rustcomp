@@ -376,8 +376,8 @@ impl TaskControlBlock {
         // copy user space(include trap context)
         let memory_set;
         if flags.contains(CloneFlags::VM) {
-            //memory_set = MemorySet::clone_memoryset(&mut parent_inner.memory_set);
-            memory_set = parent_inner.memory_set.clone();
+            memory_set = MemorySet::clone_memoryset(&mut parent_inner.memory_set);
+            //memory_set = parent_inner.memory_set.clone();
         }
         else {
             memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
