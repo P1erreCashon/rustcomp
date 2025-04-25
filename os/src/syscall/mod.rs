@@ -78,6 +78,7 @@ const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GET_RANDOM: usize = 278;
+const SYSCALL_STATX: usize = 291;
 
 mod fs;
 mod process;
@@ -311,8 +312,11 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
         },
-        SYSCALL_RT_SIGTIMEDWAIT=>{
+        SYSCALL_RT_SIGTIMEDWAIT=>{//TODO
             result = Ok(0);
+        }
+        SYSCALL_STATX=>{
+            result = sys_statx(args[0] as isize,args[1] as *const u8,args[2] as i32,args[3] as u32,args[4] as *mut Statx);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
@@ -548,6 +552,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_RT_SIGTIMEDWAIT=>{
             ret.push_str("sys_rt_sigtimedwait");
+        }
+        SYSCALL_STATX=>{
+            ret.push_str("sys_statx");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

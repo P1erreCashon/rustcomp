@@ -22,7 +22,7 @@ use arch::pagetable::MappingSize;
 use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 
 bitflags! {
     /// Defined in <bits/sched.h>
@@ -100,7 +100,19 @@ pub fn sys_getpid() -> SysResult<isize> {
     Ok(current_task().unwrap().pid.0 as isize)
 }
 
-pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,ctid:*mut i32) -> SysResult<isize> {
+pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,mut _tls:*mut i32,mut ctid:*mut i32) -> SysResult<isize> {
+    let tls = _tls;
+    let ctid_ = ctid;
+    #[cfg(target_arch = "riscv64")]
+    {
+        ctid = ctid_;
+        _tls = tls;
+    }
+    #[cfg(target_arch = "loongarch64")]
+    {
+        ctid = tls;
+        _tls = ctid_;
+    }
     let flags = CloneFlags::from_bits(flags as u64 & !0xff);
     let token = current_user_token();
     if flags.is_none(){
@@ -232,17 +244,20 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
 
 
 pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
+    log_debug!("brkarg:{:x}",new_brk);
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     let cur_brk = task_inner.heap_top;
     //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
     if new_brk == 0 {
+        log_debug!("brkret:{:x}",cur_brk);
         return Ok(cur_brk as isize);
     }
     
     if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
         task_inner.heap_top = new_brk;
     //    return 0;
+    log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
     }
 
@@ -250,6 +265,7 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         let user_stack_bottom = task_inner.stack_bottom;
         
         if new_brk >= user_stack_bottom -PAGE_SIZE { 
+            log_debug!("brkret:{:x}",cur_brk);
             return Ok(cur_brk as isize);
 //            return -1;
         }
@@ -270,10 +286,12 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
+        log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
      //   0
     }
     else if new_brk == cur_brk {
+        log_debug!("brkret:{:x}",cur_brk);
           return Ok(cur_brk as isize);
     //    -1
     }
@@ -295,6 +313,7 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         // 不释放
         // new_brk 应当大于数据段起始 未做判断
         task_inner.heap_top = new_brk;
+        log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
     //   0
     }

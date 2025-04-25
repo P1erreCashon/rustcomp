@@ -9,7 +9,7 @@ mod sigtrx;
 mod timer;
 mod trap;
 
-pub use console::{console_getchar, console_putchar};
+pub use console::{console_getchar, console_putchar,console_init};
 pub use consts::*;
 pub use context::TrapFrame;
 #[cfg(feature = "kcontext")]
@@ -23,6 +23,7 @@ use crate::clear_bss;
 
 pub fn rust_tmp_main(hart_id: usize) {
     clear_bss();
+    console_init();
     ArchInterface::init_logging();
     ArchInterface::init_allocator();
     trap::set_trap_vector_base();

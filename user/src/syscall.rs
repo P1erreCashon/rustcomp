@@ -50,6 +50,21 @@ fn syscall(id: usize, args: [usize; 3]) -> isize {
     ret
 }
 
+#[cfg(target_arch = "loongarch64")]
+fn syscall(id: usize, args: [usize; 3]) -> isize {
+    let mut ret: isize;
+    unsafe {
+        asm!(
+            "syscall 0",
+            inlateout("$r4") args[0] => ret,
+            in("$r5") args[1],
+            in("$r6") args[2],
+            in("$r11") id
+        );
+    }
+    ret
+}
+
 pub fn sys_chdir(path: &str) -> isize {
     syscall(SYSCALL_CHDIR, [path.as_ptr() as usize, 0, 0])
 }

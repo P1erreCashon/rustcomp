@@ -75,7 +75,7 @@ $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
 
 fs-img: $(APPS)
-	@cd ../user && make build TEST=$(TEST)
+	@cd ../user && make build TARGET=$(TARGET) TEST=$(TEST)
 	@rm -f $(FS_IMG)
 	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
 	@mkfs.ext4 $(FS_IMG)
@@ -84,18 +84,17 @@ fs-img: $(APPS)
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 
 test-fs-img: $(APPS)
-	@cd ../user && make build TEST=$(TEST)
+#	@cd ../user && make build TEST=$(TEST)
 	@rm -f $(FS_IMG)
 	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
 	@mkfs.ext4 $(FS_IMG)
 #	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
-	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/$(TARGET)/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 
 rvtest-fs-img: $(APPS)
-	@cd ../user && make build TEST=$(TEST)
+#	@cd ../user && make build TEST=$(TEST)
 	@rm -f $(FS_IMG)
-	@dd if=/dev/zero of=$(FS_IMG) bs=1M count=512
 	@cp ../sdcard-rv.img $(FS_IMG)
 #	@cd ../ext4-fs-fuse && cargo run -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
 	@cd ../ext4-test-fuse && cargo run -- -s ../testcase/basic/riscv64/ -t ../user/target/riscv64gc-unknown-none-elf/release/
@@ -183,5 +182,9 @@ test-gdbserver: testbuild
 
 gdbclient:
 	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+
+lagdbclient:
+	@loongarch64-linux-gnu-gdb -ex 'file $(KERNEL_ELF)' -ex 'target remote localhost:1234'
+
 
 .PHONY: build env kernel clean disasm disasm-vim run-inner fs-img gdbserver gdbclient qemu-version-check test-run-inner testbuild test-fs-img

@@ -250,9 +250,5 @@ fn easy_fs_pack() -> std::io::Result<()> {
     dcache_sync_call();
     dcache_drop();
     block_cache_sync_all();    
-    let root_dentry = get_root_dentry();
-    let lib = root_dentry.lookup("lib").unwrap();
-    
-    let _libc = lib.lookup("libc.so").unwrap();
     Ok(())
 }

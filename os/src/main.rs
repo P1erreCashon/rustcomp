@@ -178,7 +178,9 @@ impl ArchInterface for ArchInterfaceImpl {
         arch::init_interrupt();
         //timer::set_next_trigger();
     //    board::device_init();
+        println!("intr init");
         device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
+        println!("device added");
         vfs::init();
         let superblock = vfs::get_root_dentry().get_superblock();
         let dev = vfs::get_root_dentry().lookup("dev").unwrap();
@@ -186,9 +188,10 @@ impl ArchInterface for ArchInterfaceImpl {
         let ttydentry = fs::StdioDentry::new(ttyinner);
         let ttyinode = fs::StdioInode::new(vfs_defs::InodeMeta::new(vfs_defs::InodeMode::CHAR, vfs_defs::ino_alloc() as usize, superblock));
         vfs::add_tty(ttydentry,alloc::sync::Arc::new( ttyinode));
-
+        println!("vfs init");
         fs::list_apps();
         task::add_initproc();
+        println!("initproc add");
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
         task::run_tasks();
         panic!("Unreachable in rust_main!");
