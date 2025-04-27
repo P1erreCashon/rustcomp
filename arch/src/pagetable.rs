@@ -27,6 +27,8 @@ bitflags::bitflags! {
         const Device = bit!(8);
         /// Cache Flag, indicating that the page will be cached
         const Cache = bit!(9);
+        /// cow flag
+        const cow = bit!(10);
 
         /// Read | Write | Executeable Flags
         const RWX = Self::R.bits() | Self::W.bits() | Self::X.bits();

@@ -235,69 +235,24 @@ impl MemorySet {
             }
         }
     }
-    /// 修改除代码段外的权限为只读 堆直接复制
-    /// 修改除代码段外的权限为只读，堆申请新页
-    pub fn clone_memoryset(user_space: &mut MemorySet) -> MemorySet {
-        // 找到最低地址
-        /*let mut lowest_addr = 3000000;
-        for area in user_space.areas.iter() {
-            if area.vpn_range.get_start_addr().addr() < lowest_addr {
-                lowest_addr = area.vpn_range.get_start_addr().addr();
-            }
-        }*/
-        
-        // 设置非代码段的权限为只读
-        for area in user_space.areas.iter_mut() {
-            
-                for vpn in area.vpn_range {
-                    if let Some(frame) = area.data_frames.get(&vpn) {
-                        let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
-                    }
-                }
-                //user_space.activate();
-                area.map_perm &= !MapPermission::W;
-            
-        }
-
-        // mmap->read-only
-        for area in user_space.mmap_area.iter_mut() {
-            
-                for vpn in area.vpn_range {
-                    if let Some(frame) = area.data_frames.get(&vpn) {
-                        let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
-                    }
-                }
-                //user_space.activate();
-                area.map_perm &= !MapPermission::W;
-            
-        }
-        
-        // heap
-        for area in user_space.heap_area.iter_mut() {
-            
-                for vpn in area.vpn_range {
-                    if let Some(frame) = area.data_frames.get(&vpn) {
-                        let ppn = frame.ppn;
-                        user_space.page_table.map_page(vpn, ppn, (area.map_perm & (!MapPermission::W)).into(), arch::pagetable::MappingSize::Page4KB);
-                    }
-                }
-                //user_space.activate();
-                area.map_perm &= !MapPermission::W;
-            
-        }
-        user_space.activate();
-        user_space.clone()
-    }
     ///Clone a same `MemorySet`
     pub fn from_existed_user(user_space: &MemorySet) -> MemorySet {
         let mut memory_set = Self::new_bare();
         // map trampoline
         // copy data sections/trap_context/user_stack
+        let pagetable = memory_set.page_table.clone();
         for area in user_space.areas.iter() {
-            let new_area = MapArea::from_another(area);
-            memory_set.push(new_area, None);
+            let mut new_area = MapArea::from_another(area);
+            new_area.data_frames = area.data_frames.clone();
+            for (vpn,frame) in new_area.data_frames.iter(){
+                let mut pte = user_space.page_table.get_pte_flags(*vpn);
+                if pte.contains(MappingFlags::W) || pte.contains(MappingFlags::cow){
+                    pte |= MappingFlags::cow;
+                    pte &= !MappingFlags::W;
+                }
+                pagetable.map_page(*vpn, frame.ppn, pte.into(), MappingSize::Page4KB);
+            }
+            /* 
             // copy data from another space
             for vpn in area.vpn_range {
                 let src_ppn = user_space.translate(vpn).unwrap().0;
@@ -306,13 +261,25 @@ impl MemorySet {
                 //    .get_bytes_array()
                   //  .copy_from_slice(src_ppn.get_bytes_array());
                   dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer())
-            }
+            }*/
+            memory_set.areas.push(new_area);
         }
         // copy heap_area (可能出错)
         for area in user_space.heap_area.iter() {
             let new_area = MapArea::from_another(area);
             memory_set.push_into_heaparea_lazy_while_clone(new_area);
-       //     println!("fork from user push heap");
+            for vpn in area.vpn_range {
+                //self.map_one(page_table, vpn);
+                if self.page_table.translate(vpn.into()).is_some(){
+                    let mut pte = user_space.page_table.get_pte_flags(*vpn);
+                    if pte.contains(MappingFlags::W) || pte.contains(MappingFlags::cow){
+                        pte |= MappingFlags::cow;
+                        pte &= !MappingFlags::W;
+                    }
+                    pagetable.map_page(*vpn, frame.ppn, pte.into(), MappingSize::Page4KB);
+                    map_area.map_one(&self.page_table, vpn);
+                }  
+            }
             // copy data from another space
             for vpn in area.vpn_range {
                 if let Some(src_ppn) = user_space.translate(vpn){

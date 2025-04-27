@@ -99,6 +99,7 @@ bitflags! {
         const G = bit!(5);
         const A = bit!(6);
         const D = bit!(7);
+        const cow = bit!(8);
 
         #[cfg(c906)]
         const SO = bit!(63);
@@ -142,6 +143,9 @@ impl From<MappingFlags> for PTEFlags {
             if flags.contains(MappingFlags::D) {
                 res |= PTEFlags::D;
             }
+            if flags.contains(MappingFlags::cow) {
+                res |= PTEFlags::cow;
+            }
             res
         }
     }
@@ -171,7 +175,9 @@ impl From<PTEFlags> for MappingFlags {
         if value.contains(PTEFlags::D) {
             mapping_flags |= MappingFlags::D;
         }
-
+        if value.contains(PTEFlags::cow) {
+            mapping_flags |= MappingFlags::cow;
+        }
         mapping_flags
     }
 }
