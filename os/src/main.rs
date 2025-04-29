@@ -127,25 +127,28 @@ impl ArchInterface for ArchInterfaceImpl {
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
                 let ctask = current_task().unwrap();
                 let inner = ctask.inner_exclusive_access();
-                if inner.memory_set.lock().handle_lazy_addr(_paddr, trap_type).is_err() {
+                let mut memory_set = inner.memory_set.lock();
+                if memory_set.handle_lazy_addr(_paddr, trap_type).is_err() {
                     match trap_type {
                         StorePageFault(_paddr)=>{
-                            let mut memory_set = inner.memory_set.lock();
                             let r = memory_set.handle_cow_addr(_paddr);
                             if r.is_err(){
-                                memory_set.debug_addr_info();                                
+                         //       memory_set.debug_addr_info();                                
                                 println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
                                 //      ctx.syscall_ok();
                                 drop(memory_set);
                                 drop(inner);
-                                exit_current_and_run_next(-1);
+                                drop(ctask);
+                                exit_current_and_run_next(0);
                             }
                         }
                         _ =>{
                             println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
                             //      ctx.syscall_ok();
+                            drop(memory_set);
                             drop(inner);
-                            exit_current_and_run_next(-1);
+                            drop(ctask);
+                            exit_current_and_run_next(0);
                         }
                     }
 

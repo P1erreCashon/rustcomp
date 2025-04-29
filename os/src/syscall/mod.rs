@@ -175,7 +175,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_pipe(args[0] as *mut i32);
         },
         SYSCALL_BRK => {
-            log_debug!("syscall_brk arg:{:x}",args[0]);
+         //   log_debug!("syscall_brk arg:{:x}",args[0]);
             result = sys_brk(args[0]);
         },
         SYSCALL_MOUNT => {

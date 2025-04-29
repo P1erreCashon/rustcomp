@@ -4,7 +4,7 @@ use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
-use crate::mm::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
+use crate::mm::{safe_translated_refmut, translated_byte_buffer, translated_ref, translated_refmut, translated_str,safe_translated_byte_buffer};
 use crate::task::{current_task, current_user_token, Fd, FdFlags, MapFdControl, TimeSpec};
 use alloc::string::String;
 
@@ -382,14 +382,13 @@ pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
         d_reclen: u16,
         d_type: u8,
     }
-    let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
+    let buf = safe_translated_byte_buffer(inner.memory_set.clone(), buf, len);
     let file = inner.fd_table.get(fd)?;
     let file = file.file();
     let _ = file.load_dir()?;
     let mut write_size = 0;
-    let buf = translated_byte_buffer(token, buf, len);
     let mut buf_slice = buf;
     let mut offset = file.get_offset();
     let file_dentry = file.get_dentry();
@@ -423,7 +422,7 @@ pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
         }
         *offset +=1;
         let ptr = buf_slice.as_mut_ptr() as *mut SyscallDirent;
-        *translated_refmut(token, ptr) = syscall_dirent;
+        *safe_translated_refmut(inner.memory_set.clone(), ptr) = syscall_dirent;
         buf_slice[19..19 + name_size - 1].copy_from_slice(dentry.get_name_str().as_bytes());
         buf_slice[19 + name_size - 1] = b'\0';
         buf_slice = &mut buf_slice[d_reclen as usize..];

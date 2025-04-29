@@ -1,10 +1,15 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
+use arch::addr::VirtPage;
 //use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
-use arch::pagetable::PageTable;
+use arch::pagetable::{PageTable,MappingFlags};
+use arch::{TrapType, PAGE_SIZE};
 use alloc::string::{String,ToString};
 use _core::str::from_utf8_unchecked;
 use _core::slice;
 use bitflags::*;
+use super::{MemorySet,VirtAddr};
+use alloc::sync::Arc;
+use sync::Mutex;
 
 //const MODULE_LEVEL:log::Level = log::Level::Info;
 
@@ -24,6 +29,43 @@ bitflags! {
 pub fn translated_byte_buffer(_token: PageTable, ptr: *mut u8, len: usize) -> &'static mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(ptr, len) }
 }
+///
+#[allow(unused)]
+pub fn safe_translated_byte_buffer(
+    memory_set: Arc<Mutex<MemorySet>>,
+    ptr: *mut u8,
+    len: usize,
+) -> &'static mut [u8] {
+    let mut memory_set = memory_set.lock();
+    let page_table = memory_set.page_table.clone();
+    let mut start = ptr as usize;
+    let end = start + len;
+    while start < end {
+        let start_va = VirtAddr::from(start);
+        let vpn:VirtPage = start_va.into();
+        match page_table.translate(vpn.into()) {
+            None => {
+                let r = memory_set.handle_lazy_addr(start_va.addr(),TrapType::StorePageFault(start_va.addr()) );
+                if r.is_err(){
+                    let _ = memory_set.handle_cow_addr(start_va.addr());
+                }
+            }
+            Some((pa,_mp)) => {
+                if pa.addr() == 0 {
+                    let r = memory_set.handle_lazy_addr(start_va.addr(),TrapType::StorePageFault(start_va.addr()) );
+                    if r.is_err(){
+                        let _ = memory_set.handle_cow_addr(start_va.addr());
+                    }
+                }
+            }
+        }
+        let mut end_va: VirtAddr = (vpn.to_addr() + PAGE_SIZE).into() ;
+        end_va = end_va.min(VirtAddr::from(end));
+        start = end_va.into();
+    }
+    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
+}
+
 
 unsafe fn str_len(ptr: *const u8) -> usize {
     let mut i = 0;
@@ -47,7 +89,50 @@ pub fn translated_ref<T>(_token: PageTable, ptr: *const T) -> &'static T {
     unsafe { ptr.as_ref().unwrap() }
 }
 ///
+#[allow(unused)]
+pub fn safe_translated_ref<T>(memory_set: Arc<Mutex<MemorySet>>, ptr: *const T) -> &'static T {
+    let mut memory_set = memory_set.lock();
+    let page_table = memory_set.page_table.clone();
+    let va = VirtAddr::from(ptr as usize);
+    match page_table.translate(va) {
+        None => {
+            let _ = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
+        }
+        Some((pa,_mp)) => {
+            if pa.addr() == 0 {
+                let _ = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
+            }
+        }
+    }
+    unsafe { ptr.as_ref().unwrap() }
+}
+
+///
 pub fn translated_refmut<T>(_token: PageTable, ptr: *mut T) -> &'static mut T {
+    unsafe { ptr.as_mut().unwrap() }
+}
+///
+#[allow(unused)]
+pub fn safe_translated_refmut<T>(memory_set: Arc<Mutex<MemorySet>>, ptr: *mut T) -> &'static mut T {
+    let mut memory_set = memory_set.lock();
+    let page_table = memory_set.page_table.clone();
+    let va = VirtAddr::from(ptr as usize);
+    match page_table.translate(va) {
+        None => {
+            let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
+            if r.is_err(){
+                let _ = memory_set.handle_cow_addr(va.addr());
+            }
+        }
+        Some((pa,_mp)) => {
+            if pa.addr() == 0 {
+                let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
+                if r.is_err(){
+                    let _ = memory_set.handle_cow_addr(va.addr());
+                }
+            }
+        }
+    }
     unsafe { ptr.as_mut().unwrap() }
 }
 /*

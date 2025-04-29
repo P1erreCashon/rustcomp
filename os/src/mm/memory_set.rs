@@ -6,7 +6,6 @@ use super::{frame_alloc, vpn_range, FrameTracker};
 //use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::vpn_range::VPNRange;
 use alloc::alloc::dealloc;
-use alloc::string::String;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
 use crate::fs::path_to_dentry;
@@ -189,7 +188,6 @@ impl MemorySet {
 
             let mut interp_dentry: system_result::SysResult<Arc<dyn vfs_defs::Dentry>> = Err(system_result::SysError::ENOENT);
             for interp in interps.into_iter() {
-                println!("dyn:{}",interp);
               //  if interp == String::from("/lib/ld-linux-riscv64-lp64.so.1"){
                //     interp = String::from("/lib/libc.so");
                // }

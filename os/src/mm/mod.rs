@@ -18,5 +18,5 @@ pub use frame_allocator::{frame_alloc,frame_alloc_more, frame_dealloc, FrameTrac
 pub use heap_allocator::init_heap;
 pub use memory_set::{MapPermission, MemorySet, MapType, MapArea, from_prot};
 use page_table::PTEFlags;
-pub use page_table::{translated_byte_buffer, translated_ref, translated_refmut, translated_str};
+pub use page_table::{translated_byte_buffer, translated_ref, translated_refmut, translated_str,safe_translated_byte_buffer,safe_translated_ref,safe_translated_refmut};
 pub use vpn_range::VPNRange;
