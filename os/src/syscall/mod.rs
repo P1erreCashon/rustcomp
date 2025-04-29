@@ -91,7 +91,7 @@ use config::RLimit;
 use system_result::{SysResult,SysError};
 const MODULE_LEVEL:log::Level = log::Level::Trace;
 use crate::task::check_pending_signals;
-pub use process::{lazy_brk, cow, CloneFlags};
+pub use process::CloneFlags;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
    // println!("syscallid:{}",syscall_id);

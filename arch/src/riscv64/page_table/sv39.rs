@@ -44,7 +44,7 @@ impl PTE {
 
     #[inline]
     pub const fn flags(&self) -> PTEFlags {
-        PTEFlags::from_bits_truncate((self.0 & 0xff) as u64)
+        PTEFlags::from_bits_truncate((self.0 & 0x1ff) as u64)
     }
 
     #[inline]

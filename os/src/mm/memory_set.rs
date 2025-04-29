@@ -9,7 +9,7 @@ use alloc::alloc::dealloc;
 use alloc::string::String;
 use arch::pagetable::{MappingFlags, MappingSize, PageTable, PageTableWrapper};
 use arch::addr::{PhysAddr, PhysPage, VirtAddr, VirtPage};
-use arch::{USER_VADDR_END,PAGE_SIZE};
+use arch::{TrapType, PAGE_SIZE, USER_VADDR_END};
 use config::{USER_HEAP_SIZE, USER_MMAP_TOP, USER_STACK_SIZE, USER_STACK_TOP};
 use crate::sync::UPSafeCell;
 use alloc::collections::BTreeMap;
@@ -87,7 +87,12 @@ impl MemorySet {
     pub fn push_into_heaparea_lazy(&mut self, map_area: MapArea) { 
         self.heap_area.push(map_area);
     }
-    pub fn handle_lazy_addr(&mut self,addr:usize)->SysResult<isize>{
+    pub fn handle_lazy_addr(&mut self,addr:usize,_type:TrapType)->SysResult<isize>{
+        if let Some((ppn,_mp)) = self.translate(VirtPage::new(addr/PAGE_SIZE)){
+            if ppn.to_addr() != 0{
+                return Err(SysError::EADDRINUSE);
+            }
+        }
         for area in self.heap_area.iter_mut(){
             if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
                 area.map_one(&self.page_table, VirtPage::new(addr/PAGE_SIZE));
@@ -96,13 +101,58 @@ impl MemorySet {
         }
         return Err(SysError::EADDRNOTAVAIL);
     }
-    /// cow修正lazy_heap 修改权限，整段分配页
-    pub fn handle_lazy_err(&mut self, addr: usize) -> SysResult<isize> {
-        let vpn = VirtPage::from_addr(addr);
+    pub fn handle_cow_addr(&mut self,addr:usize)->SysResult<isize>{
+        for area in self.areas.iter_mut(){
+            if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
+                if let Some((_ppn,mut mp)) = self.page_table.translate(VirtAddr::from(addr)){
+                    if mp.contains(MappingFlags::cow){
+                        let vpn = VirtPage::new(addr/PAGE_SIZE);
+                        let frame = area.data_frames.get(&vpn).unwrap();
+                        if Arc::strong_count(frame) == 1{
+                            mp |= MappingFlags::W;
+                            mp &= !MappingFlags::cow;
+                            self.page_table.map_page(vpn, frame.ppn, mp.into(), MappingSize::Page4KB);
+                            return Ok(0);
+                        }
+                        let src_ppn = area.data_frames.get(&vpn).unwrap().ppn;
+                        area.unmap_one(&self.page_table, vpn);
+                        area.map_one(&self.page_table, vpn);
+                        let dst_ppn = area.data_frames.get(&vpn).unwrap().ppn;
+                        dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
+                        mp |= MappingFlags::W;
+                        mp &= !MappingFlags::cow;
+                        self.page_table.map_page(vpn, dst_ppn, mp.into(), MappingSize::Page4KB);
+                        return Ok(0);
+                    }
+                }
+            }
+        }
         for area in self.heap_area.iter_mut(){
-            if area.vpn_range.get_start() <= vpn && vpn < area.vpn_range.get_end() {
-                area.map_one_with_flags(&self.page_table, vpn, MapPermission::all().into());
-                return Ok(0);
+            if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() >= addr{
+                if let Some((_ppn,mut mp)) = self.page_table.translate(VirtAddr::from(addr)){
+                    if mp.contains(MappingFlags::cow){
+                        let vpn = VirtPage::new(addr/PAGE_SIZE);
+                        let frame = area.data_frames.get(&vpn).unwrap();
+                        if Arc::strong_count(frame) == 1{
+                            mp |= MappingFlags::W;
+                            mp &= !MappingFlags::cow;
+                            self.page_table.map_page(vpn, frame.ppn, mp.into(), MappingSize::Page4KB);
+                            return Ok(0);
+                        }
+                        let src_ppn = area.data_frames.get(&vpn).unwrap().ppn;
+                        area.unmap_one(&self.page_table, vpn);
+                        area.map_one(&self.page_table, vpn);
+                        let dst_ppn = area.data_frames.get(&vpn).unwrap().ppn;
+                        dst_ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
+                        mp |= MappingFlags::W;
+                        mp &= !MappingFlags::cow;
+                        self.page_table.map_page(vpn, dst_ppn, mp.into(), MappingSize::Page4KB);
+                        return Ok(0);
+                    }
+                    else{
+                        println!("doesn't has cow");
+                    }
+                }
             }
         }
         return Err(SysError::EADDRNOTAVAIL);
@@ -266,36 +316,22 @@ impl MemorySet {
         }
         // copy heap_area (可能出错)
         for area in user_space.heap_area.iter() {
-            let new_area = MapArea::from_another(area);
-            memory_set.push_into_heaparea_lazy_while_clone(new_area);
+            let mut new_area = MapArea::from_another(area);
+            new_area.data_frames = area.data_frames.clone();
             for vpn in area.vpn_range {
                 //self.map_one(page_table, vpn);
-                if self.page_table.translate(vpn.into()).is_some(){
-                    let mut pte = user_space.page_table.get_pte_flags(*vpn);
-                    if pte.contains(MappingFlags::W) || pte.contains(MappingFlags::cow){
-                        pte |= MappingFlags::cow;
-                        pte &= !MappingFlags::W;
+                if let Some((ppn,_mp)) = user_space.translate(vpn.into()){
+                    if ppn.to_addr() != 0 {
+                        let mut pte = user_space.page_table.get_pte_flags(vpn);
+                        if pte.contains(MappingFlags::W) || pte.contains(MappingFlags::cow){
+                            pte |= MappingFlags::cow;
+                            pte &= !MappingFlags::W;
+                        }
+                        pagetable.map_page(vpn, ppn, pte.into(), MappingSize::Page4KB);
                     }
-                    pagetable.map_page(*vpn, frame.ppn, pte.into(), MappingSize::Page4KB);
-                    map_area.map_one(&self.page_table, vpn);
                 }  
             }
-            // copy data from another space
-            for vpn in area.vpn_range {
-                if let Some(src_ppn) = user_space.translate(vpn){
-                    if src_ppn.0.to_addr() != 0 {
-                  //      println!("vpn:{:x} ppn:{:x}",vpn.to_addr(),src_ppn.0.to_addr());
-                        let dst_ppn = memory_set.translate(vpn).unwrap();
-                        dst_ppn.0.get_buffer().copy_from_slice(src_ppn.0.get_buffer())
-                    }
-                    
-
-                }
-                
-              //  dst_ppn
-                //    .get_bytes_array()
-                  //  .copy_from_slice(src_ppn.get_bytes_array());
-            }
+            memory_set.heap_area.push(new_area);
         }
         //copy mmap_area (可能出错)
         for area in user_space.mmap_area.iter() {
@@ -346,176 +382,9 @@ impl MemorySet {
         for ele in &self.areas {
             println!("{:x} {:x} {:x} {:x}",ele.vpn_range.get_start_addr().addr(),ele.vpn_range.get_end_addr().addr(),ele.vpn_range.get_start().to_addr(),ele.vpn_range.get_end().to_addr());
         }
-    }
-    /// 重映射 0成功 -1失败 1未找到
-    pub fn remove_and_insert_frame(&mut self, vpn: VirtPage, zone_id: usize, addr: usize) -> isize {
-        let areas;
-        match zone_id {
-            0 => {
-                areas = &mut self.areas;
-            }
-            1=> {
-                areas = &mut self.mmap_area;
-            }
-            2 => {
-                areas = &mut self.heap_area;
-            }
-            _ => {
-                panic!("wrong id in handle cow");
-            }
+        for ele in &self.heap_area {
+            println!("{:x} {:x} {:x} {:x}",ele.vpn_range.get_start_addr().addr(),ele.vpn_range.get_end_addr().addr(),ele.vpn_range.get_start().to_addr(),ele.vpn_range.get_end().to_addr());
         }
-        for area in areas {
-            if area.vpn_range.get_start() <= vpn && area.vpn_range.get_end() > vpn {
-                if !area.data_frames.contains_key(&vpn) && zone_id != 2 {
-                    panic!("page {:x} not exists in areas",vpn.value());
-                }
-                else if !area.data_frames.contains_key(&vpn) && zone_id == 2 {
-                    match self.handle_lazy_err(addr) {
-                        Ok(0) => {
-                            //self.show();
-                            return 0;
-                        }
-                        _ => {
-                            return -1;
-                        }
-                    }
-                }
-                //其他错误 重映射只能由只读页错误触发
-                if area.map_perm & MapPermission::W != MapPermission::empty() {
-                    panic!("cow page: {:x} addr: {} mappermisson: {} not matched",vpn.value(),addr,area.map_perm.bits());
-                }
-                if let Some(old_frame) = area.data_frames.remove(&vpn) {
-                    let p_tracker = frame_alloc().expect("can't allocate frame in handle_cow");
-                    //let src_ppn = self.translate(vpn).unwrap().0;
-                    let src_ppn = old_frame.ppn;
-                    p_tracker.ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
-                    //self.page_table.unmap_page(vpn);// 解除原映射
-                    self.page_table.map_page(vpn, p_tracker.ppn, MapPermission::all().into(), MappingSize::Page4KB);
-                    area.data_frames.insert(vpn, p_tracker.into()); 
-                    //self.show();
-                    return 0;
-                }
-                else {
-                    return -1;
-                }
-            }
-        }
-        // 不在区间
-        return 1;
-    }
-    ///
-    pub fn handle_cow(&mut self, addr: usize) -> SysResult<isize> {
-        let vpn = VirtPage::from_addr(addr);
-        for zone_id in 0..3 {
-            match self.remove_and_insert_frame(vpn, zone_id, addr) {
-                0 => {
-                    return Ok(0);
-                }
-                1 => {
-                    //继续
-                }
-                -1 => {
-                    return Err(SysError::ENXIO);
-                }
-                _ => {
-                    panic!("wrong return in remove_and_insert_frame, zoneid={}",zone_id);
-                }
-            }
-        }
-        //println!("cow page: {:x} addr: {}",vpn.value(),addr);
-        //self.show();
-        //areas
-        /*for area in &mut self.areas {
-            if area.vpn_range.get_start() <= vpn && area.vpn_range.get_end() > vpn {
-                //其他错误
-                if area.map_perm != MapPermission::R {
-                    panic!("cow page: {:x} addr: {} mappermisson: {} not matched",vpn.value(),addr,area.map_perm.bits());
-                }
-                if !area.data_frames.contains_key(&vpn) {
-                    panic!("page {:x} not exists in areas",vpn.value());
-                }
-                return self.remove_insert_frame(vpn, area);
-                if let Some(old_frame) = area.data_frames.remove(&vpn) {
-                    let p_tracker = frame_alloc().expect("can't allocate frame in handle_cow");
-                    //let src_ppn = self.translate(vpn).unwrap().0;
-                    let src_ppn = old_frame.ppn;
-                    p_tracker.ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
-                    //self.page_table.unmap_page(vpn);// 解除原映射
-                    self.page_table.map_page(vpn, p_tracker.ppn, MapPermission::all().into(), MappingSize::Page4KB);
-                    area.data_frames.insert(vpn, p_tracker.into()); 
-                    //self.show();
-                    return Ok(0);
-                }
-                return Ok(-1);
-            }
-        }
-        //mmap_area
-        for area in &mut self.mmap_area {
-            if area.vpn_range.get_start() <= vpn && area.vpn_range.get_end() > vpn {
-                //其他错误
-                if area.map_perm != MapPermission::R {
-                    return Ok(-1);
-                }
-                if !area.data_frames.contains_key(&vpn) {
-                    panic!("page {:x} not exists in mmap_area",vpn.value());
-                }
-                return self.remove_insert_frame(vpn, area);
-                /* 
-                if let Some(old_frame) = area.data_frames.remove(&vpn) {
-                    let p_tracker = frame_alloc().expect("can't allocate frame in handle_cow");
-                    //let src_ppn = self.translate(vpn).unwrap().0;
-                    let src_ppn = old_frame.ppn;
-                    p_tracker.ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
-                    //self.page_table.unmap_page(vpn);// 解除原映射
-                    self.page_table.map_page(vpn, p_tracker.ppn, MapPermission::all().into(), MappingSize::Page4KB);
-                    area.data_frames.insert(vpn, p_tracker.into()); 
-                    //self.show();
-                    return Ok(0);
-                }*/
-                //return Ok(-1);
-
-            }
-        }
-        //heap_area
-        for area in &mut self.heap_area {
-            if area.vpn_range.get_start() <= vpn && area.vpn_range.get_end() > vpn {
-                if !area.data_frames.contains_key(&vpn) {
-                    //处理懒分配
-                    //println!("处理懒分配 {:x}",vpn.value());
-                    match self.handle_lazy_err(addr) {
-                        Ok(0) => {
-                            //self.show();
-                            return Ok(0);
-                        }
-                        _ => {
-                            return Ok(-1);
-                        }
-                    }
-                }
-                else {
-                    //其他错误
-                    if area.map_perm != MapPermission::R {
-                        return Ok(-1);
-                    }
-                    //println!("处理重映射 {:x}",vpn.value());
-                    return self.remove_insert_frame(vpn, area);
-                    /*if let Some(old_frame) = area.data_frames.remove(&vpn) {
-                        let p_tracker = frame_alloc().expect("can't allocate frame in handle_cow");
-                        //let src_ppn = self.translate(vpn).unwrap().0;
-                        let src_ppn = old_frame.ppn;
-                        p_tracker.ppn.get_buffer().copy_from_slice(src_ppn.get_buffer());
-                        //self.page_table.unmap_page(vpn);// 解除原映射
-                        self.page_table.map_page(vpn, p_tracker.ppn, MapPermission::all().into(), MappingSize::Page4KB);
-                        area.data_frames.insert(vpn, p_tracker.into()); 
-                        //self.show();
-                        return Ok(0);
-                    }*/
-                    //return Ok(-1);
-                }
-            }
-        }*/
-        println!("cow error");
-        Err(SysError::ENXIO)
     }
 }
 /*
@@ -639,13 +508,11 @@ impl MapArea {
         
         page_table.map_page(vpn, ppn, flags,MappingSize::Page4KB);
     }
-    /*
-    pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPage, ppn: PhysPage) {
-        if self.map_type == MapType::Framed {
-            self.data_frames.remove(&ppn);
-        }
+    
+    pub fn unmap_one(&mut self, page_table: &Arc<PageTableWrapper>, vpn: VirtPage) {
+        self.data_frames.remove(&vpn);
         page_table.unmap_page(vpn);
-    }*/
+    }
     ///
     pub fn map(&mut self, page_table: &Arc<PageTableWrapper>) {
         for vpn in self.vpn_range {

@@ -117,7 +117,7 @@ pub struct TaskControlBlockInner {
     pub base_size: usize,
     pub task_cx:KContext,
     pub task_status: TaskStatus,
-    pub memory_set: Arc<MemorySet>,
+    pub memory_set: Arc<Mutex<MemorySet>>,
     pub kernel_stack: KernelStack,
     pub parent: Option<Weak<TaskControlBlock>>,
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
@@ -172,7 +172,7 @@ impl TaskControlBlockInner {
         unsafe { paddr.as_mut().unwrap() }
     }
     pub fn get_user_token(&self) -> PageTable  {
-        self.memory_set.token()
+        self.memory_set.lock().token()
     }
     fn get_status(&self) -> TaskStatus {
         self.task_status
@@ -203,7 +203,7 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: blank_kcontext(kstack.get_position().1),
                     task_status: TaskStatus::Ready,
-                    memory_set:Arc::new(memory_set),
+                    memory_set:Arc::new(Mutex::new(memory_set)),
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
@@ -354,7 +354,7 @@ impl TaskControlBlock {
         // **** access current TCB exclusively
         let mut inner = self.inner_exclusive_access();
         // substitute memory_set
-        inner.memory_set = Arc::new(memory_set);
+        inner.memory_set = Arc::new(Mutex::new(memory_set));
         // update trap_cx ppn
         // FIXME: This is a temporary solution
         inner.trap_cx = TrapFrame::new();
@@ -379,7 +379,7 @@ impl TaskControlBlock {
             memory_set = parent_inner.memory_set.clone();
         }
         else {
-            memory_set = Arc::new(MemorySet::from_existed_user(&parent_inner.memory_set));
+            memory_set = Arc::new(Mutex::new(MemorySet::from_existed_user(&parent_inner.memory_set.lock())));
         }
         // alloc a pid and a kernel stack in kernel space
         let pid_handle = pid_alloc();
