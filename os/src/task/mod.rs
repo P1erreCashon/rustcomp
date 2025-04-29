@@ -108,7 +108,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
         }
     }
     inner.children.clear();
-    inner.memory_set.recycle_data_pages();
+    inner.memory_set.lock().recycle_data_pages();
     drop(inner);
     drop(task);
     let mut _unused = KContext::blank();

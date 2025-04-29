@@ -306,7 +306,7 @@ pub fn sys_mmap(
     let start_va = VirtAddr::new(start);
     let end_va = VirtAddr::new(start + len);
 
-    inner.memory_set.push_into_mmaparea(
+    inner.memory_set.lock().push_into_mmaparea(
         MapArea::new(
             start_va,
             end_va,
@@ -364,8 +364,8 @@ pub fn sys_munmap(start: *mut usize, _len: usize) -> SysResult<isize> {
     // release current task TCB manually to avoid multi-borrow
     drop(inner);
     file.write_at(0, &mut buf);
-    let mut inner = task.inner_exclusive_access();
-    let res = inner.memory_set.remove_map_area_by_vpn_start(VirtAddr::new(start as usize).into());
+    let inner = task.inner_exclusive_access();
+    let res = inner.memory_set.lock().remove_map_area_by_vpn_start(VirtAddr::new(start as usize).into());
     if res < 0 {
         // 找不到地址
         return Err(SysError::EFAULT);

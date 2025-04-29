@@ -61,7 +61,7 @@ use crate::{
         suspend_current_and_run_next, 
     },
 };
-use arch::api::ArchInterface;
+use arch::{api::ArchInterface, PAGE_SIZE};
 use arch::{TrapFrame, TrapFrameArgs, TrapType};
 use arch::addr::PhysPage;
 use crate_interface::impl_interface;
@@ -125,17 +125,31 @@ impl ArchInterface for ArchInterfaceImpl {
                 }
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
-                /* 
-                println!(
-                    "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
-                    scause.cause(),
-                    stval,
-                    current_trap_cx().sepc,
-                );
-                */
-                println!("err {:x?},sepc:{:x}", trap_type,ctx[TrapFrameArgs::SEPC]);
-          //      ctx.syscall_ok();
-                exit_current_and_run_next(-1);
+                let ctask = current_task().unwrap();
+                let inner = ctask.inner_exclusive_access();
+                if inner.memory_set.lock().handle_lazy_addr(_paddr, trap_type).is_err() {
+                    match trap_type {
+                        StorePageFault(_paddr)=>{
+                            let mut memory_set = inner.memory_set.lock();
+                            let r = memory_set.handle_cow_addr(_paddr);
+                            if r.is_err(){
+                                memory_set.debug_addr_info();                                
+                                println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                                //      ctx.syscall_ok();
+                                drop(memory_set);
+                                drop(inner);
+                                exit_current_and_run_next(-1);
+                            }
+                        }
+                        _ =>{
+                            println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                            //      ctx.syscall_ok();
+                            drop(inner);
+                            exit_current_and_run_next(-1);
+                        }
+                    }
+
+                }
             }
             IllegalInstruction(_) => {
                 println!("IllegalInstruction!");

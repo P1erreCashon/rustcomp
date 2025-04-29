@@ -24,6 +24,7 @@ use core::mem::size_of;
 use crate::task::SignalFlags;
 use crate::task::signal::SigAction;
 use crate::task::action::SignalActions;
+use crate::syscall::CloneFlags;
 //use user_lib::{USER_HEAP_SIZE};
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
@@ -116,7 +117,7 @@ pub struct TaskControlBlockInner {
     pub base_size: usize,
     pub task_cx:KContext,
     pub task_status: TaskStatus,
-    pub memory_set: MemorySet,
+    pub memory_set: Arc<Mutex<MemorySet>>,
     pub kernel_stack: KernelStack,
     pub parent: Option<Weak<TaskControlBlock>>,
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
@@ -134,6 +135,7 @@ pub struct TaskControlBlockInner {
     pub trap_ctx_backup: Option<TrapFrame>, // 添加 trap_ctx_backup 字段
     pub cwd:Arc<dyn Dentry>,//工作目录
     pub heap_top: usize,
+    pub heap_bottom: usize, //brk收缩判断
     pub stack_bottom: usize,
     pub max_data_addr: usize,
     pub tms: Tms,
@@ -170,7 +172,7 @@ impl TaskControlBlockInner {
         unsafe { paddr.as_mut().unwrap() }
     }
     pub fn get_user_token(&self) -> PageTable  {
-        self.memory_set.token()
+        self.memory_set.lock().token()
     }
     fn get_status(&self) -> TaskStatus {
         self.task_status
@@ -201,7 +203,7 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: blank_kcontext(kstack.get_position().1),
                     task_status: TaskStatus::Ready,
-                    memory_set,
+                    memory_set:Arc::new(Mutex::new(memory_set)),
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
@@ -215,7 +217,8 @@ impl TaskControlBlock {
                     signal_mask_backup: SignalFlags::empty(),
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
-                    heap_top: heap_top, //
+                    heap_top: heap_top,
+                    heap_bottom: heap_top,
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
                     tms: Tms::new(),
@@ -362,7 +365,7 @@ impl TaskControlBlock {
         // **** access current TCB exclusively
         let mut inner = self.inner_exclusive_access();
         // substitute memory_set
-        inner.memory_set = memory_set;
+        inner.memory_set = Arc::new(Mutex::new(memory_set));
         // update trap_cx ppn
         // FIXME: This is a temporary solution
         inner.trap_cx = TrapFrame::new();
@@ -378,11 +381,17 @@ impl TaskControlBlock {
         // **** release current PCB
     }
     ///
-    pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
+    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags) -> Arc<TaskControlBlock> {
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
         // copy user space(include trap context)
-        let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
+        let memory_set;
+        if flags.contains(CloneFlags::VM) {
+            memory_set = parent_inner.memory_set.clone();
+        }
+        else {
+            memory_set = Arc::new(Mutex::new(MemorySet::from_existed_user(&parent_inner.memory_set.lock())));
+        }
         // alloc a pid and a kernel stack in kernel space
         let pid_handle = pid_alloc();
         let kstack = KernelStack::new();
@@ -412,6 +421,7 @@ impl TaskControlBlock {
                     signal_actions: SignalActions::new(),
                     handling_sig: -1,
                     heap_top: parent_inner.heap_top,
+                    heap_bottom: parent_inner.heap_bottom,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
                     tms: Tms::from_other_task(&parent_inner.tms),
