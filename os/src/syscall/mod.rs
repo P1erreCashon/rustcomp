@@ -334,7 +334,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
     }   
     else{
         let pid = current_task().unwrap().pid.0;
-        if syscall_id != 63 && syscall_id != 64{
+        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_BRK{
             log_debug!("pid:{} {} result:{}",pid,sysid_to_string(syscall_id),result.clone().unwrap());
         }
         return result.unwrap();

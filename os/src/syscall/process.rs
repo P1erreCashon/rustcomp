@@ -23,7 +23,7 @@ use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
 use arch::pagetable::TLB;
-const MODULE_LEVEL:log::Level = log::Level::Debug;
+const MODULE_LEVEL:log::Level = log::Level::Trace;
 #[allow(unused)]
 pub const PAGE_BIT_LEN: usize = 12;
 #[allow(unused)]
@@ -255,14 +255,14 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
     let cur_brk = task_inner.heap_top;
     //println!("sys_brk: heap_top = {}, stack_bottom = {} new_brk:{}",task_inner.heap_top,task_inner.stack_bottom,new_brk);
     if new_brk == 0 {
- //       log_debug!("brkret:{:x}",cur_brk);
+        log_debug!("brkret:{:x}",cur_brk);
         return Ok(cur_brk as isize);
     }
     
     if task_inner.max_data_addr >= new_brk && new_brk < task_inner.stack_bottom { // 利用上一次分配的多余内存
         task_inner.heap_top = new_brk;
     //    return 0;
- //   log_debug!("brkret:{:x}",new_brk);
+    log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
     }
 
@@ -270,7 +270,7 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         let user_stack_bottom = task_inner.stack_bottom;
         
         if new_brk >= user_stack_bottom -PAGE_SIZE { 
-    //        log_debug!("brkret:{:x}",cur_brk);
+            log_debug!("brkret:{:x}",cur_brk);
             return Ok(cur_brk as isize);
 //            return -1;
         }
@@ -290,12 +290,12 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         task_inner.max_data_addr += PAGE_SIZE*page_count;
         //println!("max_data_addr = {}", task_inner.max_data_addr);
         task_inner.heap_top = new_brk;
-   //     log_debug!("brkret:{:x}",new_brk);
+        log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
      //   0
     }
     else if new_brk == cur_brk {
-  //      log_debug!("brkret:{:x}",cur_brk);
+        log_debug!("brkret:{:x}",cur_brk);
           return Ok(cur_brk as isize);
     //    -1
     }
@@ -320,7 +320,7 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
             return Err(SysError::ENXIO);
         }
         task_inner.heap_top = new_brk;
-    //    log_debug!("brkret:{:x}",new_brk);
+        log_debug!("brkret:{:x}",new_brk);
         return Ok(new_brk as isize);
     //   0
     }

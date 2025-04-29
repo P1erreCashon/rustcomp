@@ -352,6 +352,7 @@ impl MemorySet {
                     pte |= MappingFlags::cow;
                     pte &= !MappingFlags::W;
                 }
+                user_space.page_table.map_page(*vpn, frame.ppn, pte.into(), MappingSize::Page4KB);
                 pagetable.map_page(*vpn, frame.ppn, pte.into(), MappingSize::Page4KB);
             }
             /* 
@@ -379,6 +380,7 @@ impl MemorySet {
                             pte |= MappingFlags::cow;
                             pte &= !MappingFlags::W;
                         }
+                        user_space.page_table.map_page(vpn, ppn, pte.into(), MappingSize::Page4KB);
                         pagetable.map_page(vpn, ppn, pte.into(), MappingSize::Page4KB);
                     }
                 }  
