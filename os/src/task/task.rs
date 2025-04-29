@@ -254,7 +254,7 @@ impl TaskControlBlock {
     ///
     pub fn exec(&self, elf_data: &[u8], args: Vec<String>) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (memory_set, mut user_sp, entry_point, heap_top,entry_size,ph_count,tls_addr,phdr) = MemorySet::from_elf(elf_data);
+        let (mut memory_set, mut user_sp, entry_point, heap_top,entry_size,ph_count,tls_addr,phdr) = MemorySet::from_elf(elf_data);
         self.inner_exclusive_access().heap_top = heap_top;
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
         self.inner_exclusive_access().max_data_addr = heap_top;
@@ -324,6 +324,17 @@ impl TaskControlBlock {
         aux.a_type = AT_RANDOM;
         aux.a_val = rd_pos;
         self.push_into_user_stack(token,&mut user_sp,aux);
+
+        if let Some(dl_entry) = memory_set.load_interp(elf_data){
+            aux.a_type = AT_BASE;
+            aux.a_val = dl_entry;
+            self.push_into_user_stack(token,&mut user_sp,aux);
+        }
+        else{
+            aux.a_type = AT_BASE;
+            aux.a_val = 0;
+            self.push_into_user_stack(token,&mut user_sp,aux);
+        }
 
         // 5. 压入 envp
         data = 0;

@@ -2,7 +2,7 @@ use alloc::{string::String, vec::Vec};
 use alloc::vec;
 use alloc::sync::Arc;
 use crate::fs::{Stdin, Stdout,StdioDentry,StdioInode};
-use vfs_defs::{DentryInner, File, FileInner, OpenFlags};
+use vfs_defs::{Dentry, DentryInner, DentryState, File, FileInner, OpenFlags};
 use vfs::devfs::{DevFsType,DevSuperBlock};
 use config::{RLimit,MAX_FD};
 use system_result::{SysError,SysResult};
@@ -60,9 +60,14 @@ impl FdTable{
     pub fn new()->Self{
         let superblock = new_devfssuper();
         let stdininner = DentryInner::new(String::from("stdin"), superblock.clone(),None);
-        let stdoutinner = DentryInner::new(String::from("stdout"), superblock,None);
-        let stdindentry = StdioDentry::new(stdininner, true);
-        let stdoutdentry = StdioDentry::new(stdoutinner, false);
+        let stdoutinner = DentryInner::new(String::from("stdout"), superblock.clone(),None);
+        let stdioinode = Arc::new(StdioInode::new(vfs_defs::InodeMeta::new(vfs_defs::InodeMode::CHAR, vfs_defs::ino_alloc() as usize, superblock)));
+        let stdindentry = StdioDentry::new(stdininner);
+        let stdoutdentry = StdioDentry::new(stdoutinner);
+        stdindentry.set_inode(stdioinode.clone());
+        stdoutdentry.set_inode(stdioinode);
+        *stdindentry.get_state() = DentryState::Valid;
+        *stdoutdentry.get_state() = DentryState::Valid;
         Self{
             fd_table: vec![
                 // 0 -> stdin

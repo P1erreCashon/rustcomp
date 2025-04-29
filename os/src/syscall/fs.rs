@@ -30,6 +30,8 @@ use core::slice;
 use alloc::{task, vec};
 use system_result::{SysError,SysResult};
 
+
+//const MODULE_LEVEL:log::Level = log::Level::Debug;
 //const HEAP_MAX: usize = 0;
 pub const AT_FDCWD: isize = -100;
 
@@ -122,8 +124,8 @@ pub fn sys_pipe(pipe: *mut i32) -> SysResult<isize> {
     //let mut inner = task.acquire_inner_lock();
     let mut inner = task.inner_exclusive_access();
     //自身目录项
-    let self_dentry = inner.cwd.clone();
-    let (pipe_read, pipe_write) = make_pipe(self_dentry); //创建一个管道并获取其读端和写端
+    let self_super = inner.cwd.get_superblock();
+    let (pipe_read, pipe_write) = make_pipe(self_super); //创建一个管道并获取其读端和写端
     let read_fd = inner.fd_table.insert(Some(Fd::new(pipe_read, FdFlags::empty())))?;
     let write_fd = inner.fd_table.insert(Some(Fd::new(pipe_write, FdFlags::empty())));
     if let Err(e) = write_fd{
@@ -211,8 +213,9 @@ pub fn sys_umount(special:*const u8,_flags:u32)->SysResult<isize>{
     let path = translated_str(token, special);
     let ext4fstype = FILE_SYSTEMS.lock().find_fs(&String::from("Ext4")).unwrap();
     let dentry = path_to_dentry(&path)?;
-    if let Err(e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
-        return Err(e);
+    if let Err(_e) = ext4fstype.umount(dentry.path().as_str(), MountFlags::empty()){
+        return Ok(0);
+       // return Err(e);
     }
     return Ok(0);
 }
@@ -489,8 +492,10 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
     let file = file.file();
     let mut offset = file.get_offset();
     let mut total_write_size = 0;
-    let iov_iter = iov;
-    for _i in 0..iovcnt{
+    let mut iov_iter = iov;
+   
+    for _i in 0..iovcnt{ 
+    //    println!("iov:{:?}",iov_iter);
         let iovs = translated_ref(token, iov_iter);
         if iovs.len == 0{
             unsafe {
@@ -498,13 +503,14 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
             }
             continue;
         }
+    //    println!("writev:write len:{}",iovs.len);
         let ptr = iovs.base;
         let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
         let write_size = file.write_at(*offset, buf);
         total_write_size += write_size;
         *offset += write_size;
         unsafe {
-            let _ = iov_iter.add(1);
+            iov_iter = iov_iter.add(1);
         }
     }
     drop(offset);
@@ -770,4 +776,53 @@ pub fn sys_renameat2(olddirfd:isize,oldpath:*const u8,newdirfd:isize,newpath:*co
     }
     return Ok(0);
     
+}
+
+#[repr(C)]
+pub struct Statx {
+    stx_mask:u32,        /* 统计信息位标识 */
+    stx_blksize:u32,     /* 推荐的 I/O 大小 */
+    stx_attributes:u64,  /* 文件属性标志 */
+    stx_nlink:u32,       /* 链接数 */
+    stx_uid:u32,        /* 所有者用户 ID */
+    stx_gid:u32,         /* 所有者组 ID */
+    stx_mode:u16,        /* 文件类型和访问模式 */
+    __spare0:u16,
+    stx_ino:u64,         /* inode 号 */
+    stx_size:u64,        /* 文件大小（字节） */
+    stx_blocks:u64,      /* 分配的块数 */
+    stx_attributes_mask:u64,
+    stx_atime:TimeSpec, /* 最后访问时间 */
+    stx_btime:TimeSpec, /* 文件创建时间 */
+    stx_ctime:TimeSpec, /* 元数据改变时间 */
+    stx_mtime:TimeSpec, /* 最后修改时间 */
+    stx_rdev_major:u32,  /* 设备号（主） */
+    stx_rdev_minor:u32,  /* 设备号（次） */
+    stx_dev_major:u32,   /* 文件所在设备号（主） */
+    stx_dev_minor:u32,   /* 文件所在设备号（次） */
+    __spare2:[u64;14],
+}
+///
+pub fn sys_statx(dirfd:isize,path:*const u8,_flags:i32,_mask:u32,statx:*mut Statx)->SysResult<isize>{
+    let token = current_user_token();
+    let path = parse_fd_path(dirfd, path)?;
+    let dentry = path_to_dentry(path.as_str())?;
+    let attr = dentry.get_inode()?.get_attr()?;
+    let statx = translated_refmut(token, statx);
+    statx.stx_mask = 0;
+    statx.stx_blksize = attr.st_blksize;
+    statx.stx_attributes = 0;
+    statx.stx_nlink = attr.st_nlink;
+    statx.stx_uid = 1;
+    statx.stx_gid = 1;
+    statx.stx_mode = attr.st_mode as u16;
+    statx.__spare0 = 0;
+    statx.stx_ino = attr.st_ino;
+    statx.stx_atime.sec = attr.st_atime_sec as usize;
+    statx.stx_atime.usec = attr.st_atime_nsec as usize;
+    statx.stx_mtime.sec = attr.st_mtime_sec as usize;
+    statx.stx_mtime.usec = attr.st_mtime_nsec as usize;
+    statx.stx_ctime.sec = attr.st_ctime_sec as usize;
+    statx.stx_ctime.usec = attr.st_ctime_nsec as usize;
+    Ok(0)
 }

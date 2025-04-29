@@ -53,6 +53,7 @@ const SYSCALL_KILL: usize = 129;
 const SYSCALL_TGKILL: usize = 131;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
+const SYSCALL_RT_SIGTIMEDWAIT:usize = 137;
 const SYSCALL_SIGRETURN: usize = 139;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_SETPGID:usize = 154;
@@ -77,6 +78,7 @@ const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GET_RANDOM: usize = 278;
+const SYSCALL_STATX: usize = 291;
 
 mod fs;
 mod process;
@@ -89,7 +91,7 @@ use crate::task::{check_signals_error_of_current, current_task, exit_current_and
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 use crate::task::check_pending_signals;
 pub use process::CloneFlags;
 /// handle syscall exception with `syscall_id` and other arguments
@@ -309,6 +311,12 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
+        },
+        SYSCALL_RT_SIGTIMEDWAIT=>{//TODO
+            result = Ok(0);
+        }
+        SYSCALL_STATX=>{
+            result = sys_statx(args[0] as isize,args[1] as *const u8,args[2] as i32,args[3] as u32,args[4] as *mut Statx);
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
@@ -541,6 +549,12 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_CLOCK_NANOSLEEP => {
             ret.push_str("sys_clock_nanosleep");
+        }
+        SYSCALL_RT_SIGTIMEDWAIT=>{
+            ret.push_str("sys_rt_sigtimedwait");
+        }
+        SYSCALL_STATX=>{
+            ret.push_str("sys_statx");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

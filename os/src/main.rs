@@ -125,20 +125,6 @@ impl ArchInterface for ArchInterfaceImpl {
                 }
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
-                /* 
-                println!(
-                    "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
-                    scause.cause(),
-                    stval,
-                    current_trap_cx().sepc,
-                );
-                */
-                
-                /*let task=current_task().unwrap();
-                let inner=task.inner_exclusive_access();
-                println!("\nheaptop={} data={}",inner.heap_top,inner.max_data_addr);
-                drop(inner);
-                */
                 let ctask = current_task().unwrap();
                 let inner = ctask.inner_exclusive_access();
                 if inner.memory_set.lock().handle_lazy_addr(_paddr, trap_type).is_err() {
@@ -164,9 +150,6 @@ impl ArchInterface for ArchInterfaceImpl {
                     }
 
                 }
-                //println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
-          //      ctx.syscall_ok();
-                //exit_current_and_run_next(-1);
             }
             IllegalInstruction(_) => {
                 println!("IllegalInstruction!");
@@ -209,10 +192,20 @@ impl ArchInterface for ArchInterfaceImpl {
         arch::init_interrupt();
         //timer::set_next_trigger();
     //    board::device_init();
+        println!("intr init");
         device::BLOCK_DEVICE.call_once(||drivers::BLOCK_DEVICE.clone());
+        println!("device added");
         vfs::init();
+        let superblock = vfs::get_root_dentry().get_superblock();
+        let dev = vfs::get_root_dentry().lookup("dev").unwrap();
+        let ttyinner = vfs_defs::DentryInner::new(alloc::string::String::from("tty"), superblock.clone(),Some(dev));
+        let ttydentry = fs::StdioDentry::new(ttyinner);
+        let ttyinode = fs::StdioInode::new(vfs_defs::InodeMeta::new(vfs_defs::InodeMode::CHAR, vfs_defs::ino_alloc() as usize, superblock));
+        vfs::add_tty(ttydentry,alloc::sync::Arc::new( ttyinode));
+        println!("vfs init");
         fs::list_apps();
         task::add_initproc();
+        println!("initproc add");
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
         task::run_tasks();
         panic!("Unreachable in rust_main!");

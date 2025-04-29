@@ -19,4 +19,4 @@ pub use inode::{list_apps, open_file,path_to_dentry,path_to_father_dentry,create
 pub use stdio::{Stdin, Stdout,StdioDentry,StdioInode};
 /// pipe mod
 pub mod pipe;
-pub use pipe::make_pipe; // 导出 make_pipe 函数
+pub use pipe::{make_pipe,PipeDentry,PipeInode}; // 导出 make_pipe 函数

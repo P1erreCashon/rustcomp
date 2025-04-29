@@ -278,8 +278,8 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     task_inner.handling_sig = sig as isize;
 
     let trap_ctx = task_inner.get_trap_cx();
-    trap_ctx.sepc = handler;
-    trap_ctx.x[10] = (sig as i32) as usize; // 修正：将 sig 转换为 i32 后再转换为 usize
+    trap_ctx[TrapFrameArgs::SEPC] = handler;
+    trap_ctx[TrapFrameArgs::ARG0] = (sig as i32) as usize; // 修正：将 sig 转换为 i32 后再转换为 usize
 
     println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
 }

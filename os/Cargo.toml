@@ -16,7 +16,7 @@ virtio-drivers = { git = "https://github.com/rcore-os/virtio-drivers", rev = "61
 easy-fs = { path = "../easy-fs" }
 ext4 = { path = "../ext4" }
 log = "0.4"
-sbi-rt = { version = "0.0.2", features = ["legacy"] }
+#sbi-rt = { version = "0.0.2", features = ["legacy"] }
 spin = "0.7.0"
 volatile = "0.3"
 vfs-defs = { path = "../vfs-defs" }
@@ -31,6 +31,7 @@ fdt = "0.1.5"
 # user_lib = {path="../user"}
 
 logger = { path = "../logger" }
+sync = { path = "../sync" }
 
 [profile.release]
 debug = true

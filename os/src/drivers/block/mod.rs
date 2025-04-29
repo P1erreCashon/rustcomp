@@ -1,5 +1,5 @@
-#[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
-mod ram_blk;
+//#[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
+mod pci_virtio_blk;
 
 #[cfg(any(target_arch = "riscv64", target_arch = "aarch64"))]
 mod virtio_blk;
@@ -11,7 +11,7 @@ use device::BlockDevice;
 use lazy_static::*;
 
 #[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
-use ram_blk::RamDiskBlock;
+pub use pci_virtio_blk::VirtIOBlock;
 
 #[cfg(any(target_arch = "riscv64", target_arch = "aarch64"))]
 lazy_static! {
@@ -20,7 +20,7 @@ lazy_static! {
 
 #[cfg(any(target_arch = "x86_64", target_arch = "loongarch64"))]
 lazy_static! {
-    pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(RamDiskBlock::new());
+    pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(VirtIOBlock::new());
 }
 #[allow(unused)]
 pub fn block_device_test() {

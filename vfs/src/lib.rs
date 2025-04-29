@@ -19,6 +19,7 @@ use vfs_defs::{FileSystemType, MountFlags,Dentry};
 use device::BLOCK_DEVICE;
 pub use ext4::BLOCK_SIZE;
 use memfs::{MemFile,MemInode,MemDentry};
+pub use devfs::add_tty;
 
 lazy_static!{
     pub static ref FILE_SYSTEMS:Mutex<FileSystemManager> =

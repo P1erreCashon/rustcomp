@@ -8,7 +8,7 @@ use crate::file::Ext4ImplFile;
 use ext4_rs::*;
 
 use super::Ext4Inode;
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 pub const EXT_MAX_BLOCKS: u32 = u32::MAX;
 pub struct Ext4Dentry{
     inner:DentryInner
@@ -29,14 +29,13 @@ impl Dentry for Ext4Dentry{
     }
     fn concrete_create(self: Arc<Self>, name: &str, _type:DiskInodeType) -> SysResult<Arc<dyn Dentry>> {
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
-        let mut inode_num = self.get_inode()?.downcast_arc::<Ext4Inode>().map_err(|_| SysError::ENOENT)?.get_meta().ino as u32;
         let child_dir = self.get_child(name).unwrap();
         let path = child_dir.path();
         let child_ino;
         match _type{
             DiskInodeType::File=>{
                 //child_ino = sblock.ext4fs.ext4_file_open( path.as_str(), "w+");
-                child_ino = sblock.ext4fs.generic_open( path.as_str(),&mut inode_num,true,InodeFileType::S_IFREG.bits(),&mut 0 );
+                child_ino = sblock.ext4fs.generic_open( path.as_str(),&mut 2,true,InodeFileType::S_IFREG.bits(),&mut 0 );
             }
             DiskInodeType::Directory=>{
                 child_ino = sblock.ext4fs.ext4_dir_mk(path.as_str());
@@ -94,15 +93,19 @@ impl Dentry for Ext4Dentry{
     }
     fn concrete_lookup(self: Arc<Self>, name: &str) -> SysResult<Arc<dyn Dentry>> {
         let sblock = self.get_superblock().downcast_arc::<Ext4Superblock>().map_err(|_| SysError::ENOENT)?;
+        let mut ino = self.get_inode().unwrap().get_meta().ino as u32;
         let child = self.get_child(name).unwrap();
         let path = child.path();
-        let r;
+        let mut r;
         r = sblock.ext4fs.ext4_dir_open(path.as_str());
-        if let Err(e) = r {
-            return match e.error() {
-                Errno::ENOENT => Err(SysError::ENOENT),
-                Errno::EINVAL => Err(SysError::EINVAL),
-                _ => Err(SysError::EINVAL),
+        if let Err(_e) = r {
+            r = sblock.ext4fs.generic_open(path.as_str(), &mut ino, false, 0, &mut 0);
+            if let Err(e) = r {
+                return match e.error() {
+                    Errno::ENOENT => Err(SysError::ENOENT),
+                    Errno::EINVAL => Err(SysError::EINVAL),
+                    _ => Err(SysError::EINVAL),
+                }
             }
         }            
         let inode_ref = sblock.ext4fs.get_inode_ref(r.unwrap());

@@ -62,6 +62,10 @@ impl OSInode {
 }*/ 
 ///List all files in the filesystems
 pub fn list_apps() {
+   // let root_dentry = get_root_dentry();
+   // let lib = root_dentry.lookup("lib").unwrap();
+   // let _ = lib.clone().load_dir();
+   // let _libc = lib.lookup("libc.so").unwrap();
    /*  println!("/**** APPS ****");
     let root_dentry = get_root_dentry();
    

@@ -18,6 +18,11 @@ pub struct Stdout{
     inner:FileInner
 }
 
+pub struct StdIO{
+    buf:Mutex<Option<u8>>,
+    inner:FileInner
+}
+
 impl Stdin{
     pub fn new(inner:FileInner)->Self{
         Self{
@@ -33,7 +38,14 @@ impl Stdout{
         }
     }
 }
-
+impl StdIO{
+    pub fn new(inner:FileInner)->Self{
+        Self{
+            buf:Mutex::new(None),
+            inner
+        }
+    }
+}
 impl File for Stdin {
     fn readable(&self) -> bool {
         true
@@ -112,9 +124,81 @@ impl File for Stdout {
     }
     fn write(&self, user_buf: &[u8]) -> usize {
     //    for buffer in user_buf.iter() {
-     //       print!("{}", core::str::from_utf8(user_buf).unwrap());
-            unsafe {print!("{}", core::str::from_utf8_unchecked(user_buf));}
-    //    }
+            print!("{}", core::str::from_utf8(user_buf).unwrap());
+     //       unsafe {print!("{}", core::str::from_utf8_unchecked(user_buf));}
+   /* match core::str::from_utf8(user_buf) {
+        Ok(s) => {print!("{}", s);},
+        Err(e) => {
+            let valid = &user_buf[..e.valid_up_to().min(user_buf.len())];
+            if let Ok(valid_str) = core::str::from_utf8(valid) {
+                print!("{}", valid_str);
+            }
+        }
+    } */  
+        user_buf.len()
+    }
+    fn get_inner(&self)->&FileInner {
+        &self.inner
+    }
+    fn read_at(&self, _offset: usize, _buf: &mut [u8])->usize {
+        unimplemented!()
+    }
+    fn write_at(&self, _offset: usize, _buf: &[u8])->usize {
+    /*    match core::str::from_utf8(_buf) {
+            Ok(s) => {print!("{}", s);},
+            Err(e) => {
+                let valid = &_buf[..e.valid_up_to().min(_buf.len())];
+                if let Ok(valid_str) = core::str::from_utf8(valid) {
+                    print!("{}", valid_str);
+                }
+            }
+        } */
+        print!("{}", core::str::from_utf8(_buf).unwrap());
+        _buf.len()
+    }
+    fn get_offset(&self)->MutexGuard<usize> {
+        self.get_inner().offset.lock()
+    }
+    fn poll(&self, _events: PollEvents) -> PollEvents {
+        return PollEvents::POLLOUT;
+    }
+}
+
+impl File for StdIO {
+    fn readable(&self) -> bool {
+        true
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn read(&self,  user_buf: &mut [u8]) -> usize {
+        assert_eq!(user_buf.len(), 1);
+        // busy loop
+        let c: u8;
+        let mut buf = self.buf.lock();
+        if buf.is_some(){
+            user_buf[0] = buf.unwrap();
+            *buf = None;
+            return 1;
+        }
+        drop(buf);
+        loop {
+            if let Some(ch) = console_getchar() {
+                c = ch;
+                break;
+            }
+            suspend_current_and_run_next();
+        }
+        user_buf[0] = c as u8;
+        /* 
+        let ch = UART.read();
+        unsafe {
+            user_buf.buffers[0].as_mut_ptr().write_volatile(ch);
+        }*/
+        1
+    }
+    fn write(&self, user_buf: &[u8]) -> usize {
+        print!("{}", core::str::from_utf8(user_buf).unwrap());
         user_buf.len()
     }
     fn get_inner(&self)->&FileInner {
@@ -130,24 +214,34 @@ impl File for Stdout {
     fn get_offset(&self)->MutexGuard<usize> {
         self.get_inner().offset.lock()
     }
-    fn poll(&self, _events: PollEvents) -> PollEvents {
-        return PollEvents::POLLOUT;
+    fn poll(&self, events: PollEvents) -> PollEvents {
+        if  ! events.contains(PollEvents::POLLIN) { 
+            return PollEvents::empty();
+        }
+        loop {
+            if let Some(ch) = console_getchar() {
+                let mut buf = self.buf.lock();
+                *buf = Some(ch);
+                drop(buf);
+                break;
+            }
+            suspend_current_and_run_next();
+        }
+        return PollEvents::POLLIN;
     }
 }
 
 pub struct StdioDentry {
     inner: DentryInner,
-    is_stdin:bool,
 }
 
 impl StdioDentry {
     pub fn new(
-        inner:DentryInner,
-        is_stdin:bool,
+        mut inner:DentryInner,
     ) -> Arc<Self> {
+        inner.name = String::from("tty");
         Arc::new(Self {
             inner,
-            is_stdin,
         })
     }
 }
@@ -157,12 +251,7 @@ impl Dentry for StdioDentry{
     }
     fn open(self:Arc<Self>,flags:OpenFlags)->Arc<dyn File> {
         let file;
-        if self.is_stdin{
-            file = Arc::new(Stdin::new(FileInner::new(self)));
-        }
-        else{
-            file = Arc::new(Stdin::new(FileInner::new(self)));
-        }
+        file = Arc::new(StdIO::new(FileInner::new(self)));
         *file.get_inner().flags.lock() = flags;
         return file;
     }
@@ -217,7 +306,7 @@ impl Inode for StdioInode{
             Ok(Kstat{
                 st_dev: 0,
                 st_ino: self.meta.ino as u64,
-                st_mode: 0,
+                st_mode: vfs_defs::InodeMode::CHAR.bits(),
                 st_nlink: 0,
                 st_uid: 0,
                 st_gid: 0,

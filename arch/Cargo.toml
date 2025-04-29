@@ -39,3 +39,4 @@ arm_gic = { git = "https://github.com/Byte-OS/arm_gic" }
 [target.'cfg(target_arch = "loongarch64")'.dependencies]
 spin = { version = "0.9.8", features = ["mutex"] }
 loongarch64 = {git = "https://github.com/Godones/loongArch64",package = "loongArch64" }
+volatile = "0.3"

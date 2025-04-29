@@ -3,14 +3,22 @@
 
 #[macro_use]
 extern crate user_lib;
-
-use user_lib::{exec, fork, wait, yield_};
+extern crate alloc;
+use alloc::string::String;
+use alloc::vec::Vec;
+use user_lib::{exec, fork, wait, yield_,chdir};
 
 #[no_mangle]
 fn main() -> i32 {
     println!("initproc");
+ //   chdir("/glibc\0");
+ //   let mut args_copy: Vec<String> =Vec::new();
+ //   args_copy.push(String::from("sh"));
+  //  let mut args_addr: Vec<*const u8> = args_copy.iter().map(|arg| arg.as_ptr()).collect();
+ //   args_addr.push(core::ptr::null::<u8>());
     if fork() == 0 {
-        exec("user_shell\0", &[core::ptr::null::<u8>()]);
+     //   exec("/glibc/busybox\0", &args_addr);
+     exec("user_shell\0", &[core::ptr::null::<u8>()]);
     } else {
         loop {
             let mut exit_code: i32 = 0;

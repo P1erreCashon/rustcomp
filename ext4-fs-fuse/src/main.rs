@@ -115,11 +115,8 @@ fn easy_fs_pack() -> std::io::Result<()> {
         // write data to ext4
         sb.ext4fs.ext4_file_write(inode as u64, 0, all_data.as_slice());
     }
+
     println!("app:----");
-    /* list apps
-     for app in root_dentry.clone().ls() {
-         println!("{}", app);
-     }*/
     drop(root_dentry);
     block_cache_sync_all();
     Ok(())
