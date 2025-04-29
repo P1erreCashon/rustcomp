@@ -70,7 +70,6 @@ use lazy_static::*;
 //use sync::IntrCell;
 use arch::TrapType::*;
 use log::Record;
-use syscall::lazy_brk;
 //lazy_static! {
     //
   //  pub static ref DEV_NON_BLOCKING_ACCESS: IntrCell<bool> =
@@ -140,20 +139,30 @@ impl ArchInterface for ArchInterfaceImpl {
                 println!("\nheaptop={} data={}",inner.heap_top,inner.max_data_addr);
                 drop(inner);
                 */
-                match lazy_brk(_paddr) {
-                    Ok(0) => {
-                        /*println!("lazy-brk: {}",_paddr);
-                        let task=current_task().unwrap();
-                        let inner=task.inner_exclusive_access();
-                        println!("heaptop={} data={}",inner.heap_top,inner.max_data_addr);
-                        */
+                let ctask = current_task().unwrap();
+                let inner = ctask.inner_exclusive_access();
+                if inner.memory_set.lock().handle_lazy_addr(_paddr, trap_type).is_err() {
+                    match trap_type {
+                        StorePageFault(_paddr)=>{
+                            let mut memory_set = inner.memory_set.lock();
+                            let r = memory_set.handle_cow_addr(_paddr);
+                            if r.is_err(){
+                                memory_set.debug_addr_info();                                
+                                println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                                //      ctx.syscall_ok();
+                                drop(memory_set);
+                                drop(inner);
+                                exit_current_and_run_next(-1);
+                            }
+                        }
+                        _ =>{
+                            println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                            //      ctx.syscall_ok();
+                            drop(inner);
+                            exit_current_and_run_next(-1);
+                        }
                     }
-                    _ => {
-                        println!("errpage = {:x}",_paddr/PAGE_SIZE);
-                        println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
-                    //      ctx.syscall_ok();
-                        exit_current_and_run_next(-1);
-                    }
+
                 }
                 //println!("err {:x?},sepc:{:x}", trap_type,ctx.sepc);
           //      ctx.syscall_ok();

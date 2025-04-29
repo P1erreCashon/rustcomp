@@ -2,7 +2,7 @@ use core::f32::consts::E;
 use core::ops::Add;
 
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
-use crate::mm::{translated_ref, translated_refmut, translated_str, MapType};
+use crate::mm::{frame_alloc, frame_dealloc, translated_ref, translated_refmut, translated_str, MapType};
 use crate::task::{
     self, UNAME,add_task, current_task, current_user_token, 
     exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task,
@@ -113,7 +113,7 @@ pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,_tls:*mut i32,cti
     }
     let flags = flags.unwrap();
     let current_task = current_task().unwrap();
-    let new_task = current_task.fork();    
+    let new_task = current_task.fork(flags);    
     let new_pid = new_task.pid.0;
     // modify trap context of new_task, because it returns immediately after switching
     let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
@@ -212,7 +212,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
             let exit_code = child.inner_exclusive_access().exit_code;
             // ++++ release child PCB
             if exit_code_ptr != core::ptr::null_mut(){
-                *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
+                *translated_refmut(inner.memory_set.lock().token(), exit_code_ptr) = exit_code;
             }
             return Ok(found_pid as isize);
         } else {
@@ -234,33 +234,7 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
     task_inner.cwd = dentry;
     Ok(0)
 }
-pub fn lazy_brk(error_addr: usize) -> SysResult<isize> {
-    let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    inner.memory_set.handle_lazy_addr(error_addr)?;
-    /* 
-    if error_addr >= inner.max_data_addr && error_addr < inner.heap_top {
-        let cur_addr = VirtAddr::new(inner.max_data_addr).floor();
-        let new_addr = VirtAddr::new(error_addr).ceil();
-        let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
-        let alloc_start_addr = inner.max_data_addr;
- 
-        inner.memory_set.push_into_heaparea(
-            MapArea::new(
-                VirtAddr::new(alloc_start_addr),
-                VirtAddr::new(error_addr),
-                MapType::Framed,
-                MapPermission::R | MapPermission::U | MapPermission::W | MapPermission::X,
-            ),
-            None,
-        );
- 
-        inner.max_data_addr += PAGE_SIZE * page_count;
-        return Ok(0);
-    }*/
- 
-    Ok(0)
-}
+
 
 pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
     let task = current_task().unwrap();
@@ -289,7 +263,7 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         
         let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
         let alloc_start_addr = task_inner.max_data_addr;
-        task_inner.memory_set.push_into_heaparea_lazy(
+        task_inner.memory_set.lock().push_into_heaparea_lazy(
             MapArea::new(
                 VirtAddr::new(alloc_start_addr), //向下
                 VirtAddr::new(new_brk), //向上
@@ -576,7 +550,7 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     }
 
     let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
 
    // log_debug!("before mprotect:");
    // inner.memory_set.debug_addr_info();
@@ -617,35 +591,48 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     let mut target_area_id = None;
     if !is_find {
    //     log_debug!("check normal");
-        target_area_id = process_area(&mut inner.memory_set.areas, 0, &mut is_find);
+        target_area_id = process_area(&mut inner.memory_set.lock().areas, 0, &mut is_find);
     }
     if !is_find && target_area_id.is_none() {
   //      log_debug!("check mmap");
-        target_area_id = process_area(&mut inner.memory_set.mmap_area, 1, &mut is_find);
+        target_area_id = process_area(&mut inner.memory_set.lock().mmap_area, 1, &mut is_find);
     }
     if !is_find && target_area_id.is_none() {
   //      log_debug!("check heap");
-        target_area_id = process_area(&mut inner.memory_set.heap_area, 2, &mut is_find);
+        target_area_id = process_area(&mut inner.memory_set.lock().heap_area, 2, &mut is_find);
 }
 
     // 新区间插入对应area
     for new_area in new_areas {
         if let Some(area) = new_area {
             for (vpn,frame) in area.data_frames.iter(){
-                inner.memory_set.page_table.map_page(*vpn, frame.ppn, area.map_perm.into(), arch::pagetable::MappingSize::Page4KB);
+                inner.memory_set.lock().page_table.map_page(*vpn, frame.ppn, area.map_perm.into(), arch::pagetable::MappingSize::Page4KB);
             }
             match target_area_id {
-                Some(0) => inner.memory_set.areas.push(area),
-                Some(1) => inner.memory_set.mmap_area.push(area),
-                Some(2) => inner.memory_set.heap_area.push(area),
+                Some(0) => inner.memory_set.lock().areas.push(area),
+                Some(1) => inner.memory_set.lock().mmap_area.push(area),
+                Some(2) => inner.memory_set.lock().heap_area.push(area),
                 _ => panic!("wrong area_id in mprotect call!"),
             }
         }
     }
-    inner.memory_set.activate();
+    inner.memory_set.lock().activate();
   //  log_debug!("after mprotect:");
   //  inner.memory_set.debug_addr_info();
     if is_find {
+        let mut v: usize = start_vpn.value();
+        while v < end_vpn.value() {
+        let vaddr = VirtAddr::new(VirtPage::new(v).to_addr());
+        let memory_set = inner.memory_set.lock();
+        if let Some(paddr) = memory_set.page_table.translate(vaddr) {
+            let ppn = PhysPage::from_addr(paddr.0.addr());
+            let vpn =VirtPage::from_addr(vaddr.addr());
+            memory_set.page_table.map_page(vpn, ppn, perm.into(), arch::pagetable::MappingSize::Page4KB);
+        }
+        
+        v += 1;
+        }
+        inner.memory_set.lock().activate();
         Ok(0)
     } else {
         Err(SysError::ENXIO)

@@ -58,6 +58,9 @@ impl From<MappingFlags> for PTEFlags {
         if value.contains(MappingFlags::U) {
             flags |= PTEFlags::PLV_USER;
         }
+        if value.contains(MappingFlags::cow){
+            flags |= PTEFlags::cow;
+        }
         flags
     }
 }
@@ -79,6 +82,9 @@ impl Into<MappingFlags> for PTEFlags {
 
         if self.contains(PTEFlags::PLV_USER) {
             flags |= MappingFlags::U;
+        }
+        if self.contains(PTEFlags::cow) {
+            flags |= MappingFlags::cow;
         }
         flags
     }
@@ -111,6 +117,8 @@ bitflags::bitflags! {
         /// FIXME: Is it just for a huge page?
         /// Linux related url: https://github.com/torvalds/linux/blob/master/arch/loongarch/include/asm/pgtable-bits.h
         const NX = bit!(12);
+        ///
+        const cow = bit!(58);
         /// Whether the privilege Level is restricted. When RPLV is 0, the PTE
         /// can be accessed by any program with privilege Level highter than PLV.
         const RPLV = bit!(63);
