@@ -22,6 +22,10 @@ pub fn init_heap() {
     }
 }
 
+pub fn show_mem_alloced(){
+    println!("alloced:{:x}",HEAP_ALLOCATOR.lock().stats_alloc_actual());
+}
+
 #[allow(unused)]
 pub fn heap_test() {
     use alloc::boxed::Box;

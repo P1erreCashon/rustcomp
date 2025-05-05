@@ -4,8 +4,8 @@ use crate::fs::{open_file,create_file};
 use crate::fs::make_pipe;
 use crate::fs::path_to_dentry;
 use crate::fs::path_to_father_dentry;
-use crate::mm::{safe_translated_refmut, translated_byte_buffer, translated_ref, translated_refmut, translated_str,safe_translated_byte_buffer};
-use crate::task::{current_task, current_user_token, Fd, FdFlags, MapFdControl, TimeSpec};
+use crate::mm::{safe_translated_refmut, translated_byte_buffer, translated_ref, translated_refmut, translated_str,safe_translated_byte_buffer,MmapFlags,MapAreaType};
+use crate::task::{current_task, current_user_token, Fd, FdFlags, TimeSpec};
 use alloc::string::String;
 
 use arch::addr::{VirtAddr, VirtPage};
@@ -26,7 +26,7 @@ use crate::mm::MapType;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ptr::{self, addr_of_mut, null_mut};
-use core::slice;
+use core::{mem, slice};
 use alloc::{task, vec};
 use system_result::{SysError,SysResult};
 
@@ -47,8 +47,10 @@ pub fn sys_write(fd: usize, buf: *mut u8, len: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
 
-    let file = inner.fd_table.get(fd)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd)?;
     let file = file.file();
+    drop(fdtable);
     if !file.writable() {
         return Err(SysError::EPERM);
     }
@@ -63,8 +65,10 @@ pub fn sys_read(fd: usize, buf: *mut u8, len: usize) -> SysResult<isize> {
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(fd)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd)?;
     let file = file.file();
+    drop(fdtable);
     if !file.readable() {
         return Err(SysError::EPERM);
     }
@@ -79,24 +83,26 @@ pub fn sys_openat(pfd:isize,path: *const u8, flags: u32,_mode:u32) -> SysResult<
     let path = translated_str(token, path);
     if path.chars().next() == Some('/') || pfd == AT_FDCWD{
         let inode = open_file(path.as_str(), OpenFlags::from_bits(flags).unwrap())?;
-        let mut inner = task.inner_exclusive_access();
-        let fd = inner.fd_table.insert(Some(Fd::new(inode, FdFlags::empty())))?;
+        let inner = task.inner_exclusive_access();
+        let fd = inner.fd_table.lock().insert(Some(Fd::new(inode, FdFlags::empty())))?;
         return Ok(fd as isize);
     }
-    let mut inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(pfd as usize)?;
+    let inner = task.inner_exclusive_access();
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(pfd as usize)?;
     let file = file.file();
+    drop(fdtable);
     let father_path = file.get_dentry().path();
     let child_path = father_path+&path;
     let inode = open_file(child_path.as_str(), OpenFlags::from_bits(flags).unwrap())?;
-    let fd = inner.fd_table.insert(Some(Fd::new(inode, FdFlags::empty())))?;
+    let fd = inner.fd_table.lock().insert(Some(Fd::new(inode, FdFlags::empty())))?;
     return Ok(fd as isize);
 }
 
 pub fn sys_close(fd: usize) -> SysResult<isize> {
     let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    let _ = inner.fd_table.remove(fd)?;
+    let inner = task.inner_exclusive_access();
+    let _ = inner.fd_table.lock().remove(fd)?;
     return Ok(0);
 }
 
@@ -110,8 +116,10 @@ pub fn sys_mkdirat(pfd:isize,path: *const u8,_mode:u32) -> SysResult<isize> {
         return Ok(0);
     }
     let inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(pfd as usize)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(pfd as usize)?;
     let file = file.file();
+    drop(fdtable);
     let father_path = file.get_dentry().path();
     let child_path = father_path+&path;
     let _inode = create_file(child_path.as_str(), vfs_defs::DiskInodeType::Directory)?;
@@ -122,14 +130,14 @@ pub fn sys_pipe(pipe: *mut i32) -> SysResult<isize> {
     let task = current_task().unwrap();
     let token = current_user_token();
     //let mut inner = task.acquire_inner_lock();
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
     //自身目录项
     let self_super = inner.cwd.get_superblock();
     let (pipe_read, pipe_write) = make_pipe(self_super); //创建一个管道并获取其读端和写端
-    let read_fd = inner.fd_table.insert(Some(Fd::new(pipe_read, FdFlags::empty())))?;
-    let write_fd = inner.fd_table.insert(Some(Fd::new(pipe_write, FdFlags::empty())));
+    let read_fd = inner.fd_table.lock().insert(Some(Fd::new(pipe_read, FdFlags::empty())))?;
+    let write_fd = inner.fd_table.lock().insert(Some(Fd::new(pipe_write, FdFlags::empty())));
     if let Err(e) = write_fd{
-        let _ = inner.fd_table.remove(read_fd);
+        let _ = inner.fd_table.lock().remove(read_fd);
         return Err(e);
     }
     let write_fd = write_fd.unwrap();
@@ -162,8 +170,8 @@ pub fn sys_getcwd(cwd: *mut u8, size: usize) -> SysResult<isize> {
 //int ret = syscall(SYS_dup, fd);
 pub fn sys_dup(fd: usize) -> SysResult<isize> {
     let binding = current_task().unwrap();
-    let mut task_inner = binding.inner_exclusive_access();
-    return task_inner.fd_table.dup(fd);
+    let task_inner = binding.inner_exclusive_access();
+    return task_inner.fd_table.lock().dup(fd);
 }
 
 //int old, int new;
@@ -176,9 +184,9 @@ pub fn sys_dup3(old: usize, new: usize, _flags: usize) -> SysResult<isize> {
         return Ok(new as isize);
     }
     let binding = current_task().unwrap();
-    let mut task_inner = binding.inner_exclusive_access();
-    let fd_table = &mut task_inner.fd_table;
-    return  fd_table.dup3(old, new, _flags);
+    let task_inner = binding.inner_exclusive_access();
+    let fd_table = &task_inner.fd_table;
+    return  fd_table.lock().dup3(old, new, _flags);
 }
 
 pub fn sys_mount(_special:*const u8,dir:*const u8,fstype:*const u8,_flags:u32,_data:*const u8)->SysResult<isize>{
@@ -224,8 +232,10 @@ pub fn sys_fstat(fd:usize,kst:*mut Kstat)->SysResult<isize>{
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(fd)?; 
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd)?;
     let file = file.file();
+    drop(fdtable);
     let attr = file.get_attr()?;
     let kst = translated_refmut(token, kst);
     *kst = attr;
@@ -262,8 +272,8 @@ long ret = syscall(SYS_mmap, start, len, prot, flags, fd, off);
 pub fn sys_mmap(
     _start: *mut usize,
     len: usize,
-    _prot: i32,
-    _flags: i32,
+    mprot: i32,
+    flags: i32,
     fd: usize,
     off: i32,
 ) -> SysResult<isize> {
@@ -275,103 +285,73 @@ pub fn sys_mmap(
     if num*PAGE_SIZE != len {
         num = num + 1;
     }
-    // 获取文件数据
-    let mut buf = vec![0u8; len];
-    let buf_ptr = buf.as_mut_ptr();
-
-    let task = current_task().unwrap();
-    let inner = task.inner_exclusive_access();
-
-    let file = inner.fd_table.get(fd)?;
-    let file = file.file();
-    if !file.readable() {
-        return Err(SysError::EACCES);
-    }
-        // release current task TCB manually to avoid multi-borrow
-    drop(inner);
-    file.read_at(0, &mut buf);
-
     
-    let mut inner = task.inner_exclusive_access();
-    let mut start = inner.mapareacontrol.find_block(num);// num是需要的页数目 
-    let mut move_top = false;
-    if start == 0 {
-        start = inner.mapareacontrol.mmap_top;
-        move_top = true;
+    let mut prot = MapPermission::U;
+    if mprot & 0x1 != 0{
+        prot |= MapPermission::R;
     }
+    if mprot & 0x2 != 0{
+        prot |= MapPermission::W;
+    }    
+    if mprot & 0x4 != 0{
+        prot |= MapPermission::X;
+    }
+    let flags = MmapFlags::from_bits_truncate(flags);
+    let mut map_file = None;
+    let task = current_task().unwrap();
+    if !flags.contains(MmapFlags::MAP_ANONYMOUS){
+        let inner = task.inner_exclusive_access();
+        let fdtable = inner.fd_table.lock();
+        let file = fdtable.get(fd)?;
+        let file = file.file();
+        drop(fdtable);
+        if !file.readable() {
+            return Err(SysError::EACCES);
+        }
+        map_file = Some(file);
+            // release current task TCB manually to avoid multi-borrow
+        drop(inner);
+    }
+    if flags.contains(MmapFlags::MAP_FIXED){
+        let inner = task.inner_exclusive_access();
+        let mut area =MapArea::new(VirtAddr::new(_start as usize),VirtAddr::new(_start as usize + len),MapType::Framed,prot,MapAreaType::Mmap,);
+        area.map_file = map_file;
+        area.mmap_flag = flags;
+     //   println!("mmap fixed start:{:x} end:{:x} prot:{:x} {:x}",_start as usize,_start as usize + len,mprot,prot);
+        inner.memory_set.lock().debug_addr_info();
+        inner.memory_set.lock().push_into_area_lazy(area);
+        inner.memory_set.lock().debug_addr_info();
+        return Ok(_start as isize);
+    }
+    let inner = task.inner_exclusive_access();
+    let mut memory_set = inner.memory_set.lock();
+    let start = memory_set.mapareacontrol.mmap_top;
     if len + start >= USER_STACK_TOP {
         // 与栈重叠
         return Err(SysError::ENOMEM);
     }
     let start_va = VirtAddr::new(start);
     let end_va = VirtAddr::new(start + len);
-
-    inner.memory_set.lock().push_into_mmaparea(
-        MapArea::new(
-            start_va,
-            end_va,
-            MapType::Framed,
-        MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
-        ),
-        unsafe {
-            Some(slice::from_raw_parts(buf_ptr, len))
-        }
-    );
-    if move_top {
-        inner.mapareacontrol.mmap_top += num * PAGE_SIZE;
-    }
-    inner.mapareacontrol.mapfd.push(
-        MapFdControl { 
-            fd: fd, 
-            len: len,
-            start_va: start
-        }
-    );
+    let mut area =MapArea::new(start_va,end_va,MapType::Framed,prot,MapAreaType::Mmap,);
+    area.map_file = map_file;
+    area.mmap_flag = flags;
+  //  println!("mmap start:{:x} end:{:x} prot:{:x} {:x}",start as usize,start as usize + len,mprot,prot);
+    memory_set.push_into_area_lazy(area);
+    memory_set.mapareacontrol.mmap_top += num * PAGE_SIZE;
     return Ok(start as isize);
     
 }
 //void *start, size_t len
 //int ret = syscall(SYS_munmap, start, len);
-pub fn sys_munmap(start: *mut usize, _len: usize) -> SysResult<isize> {
+pub fn sys_munmap(start: *mut usize, len: usize) -> SysResult<isize> {
     if start as usize/ PAGE_SIZE *PAGE_SIZE != start as usize {
         // 未对齐，地址错误
         return Err(SysError::EINVAL);
-    }
+    };
     let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
-    if inner.mapareacontrol.mmap_top <= start as usize {
-        // 地址越界
-        return Err(SysError::EINVAL);
-    }
-    // fd
-    let mut len: usize = 0;
-    let fd = inner.mapareacontrol.find_fd(start as usize, &mut len);
-    if fd < 0 {
-        return Err(SysError::ENOENT);
-    }
-  //  if fd >= inner.fd_table.len() as isize {
-  //      println!("fd out of range!");
-  //      return -4;
-  //  }
-    // read data from va
-    let mut buf = vec![0u8; len];
-    
-    let file = inner.fd_table.get(fd as usize)?;
-    let file = file.file();
-    if !file.writable() {
-        return Err(SysError::EACCES);
-    }
-    // release current task TCB manually to avoid multi-borrow
-    drop(inner);
-    file.write_at(0, &mut buf);
     let inner = task.inner_exclusive_access();
-    let res = inner.memory_set.lock().remove_map_area_by_vpn_start(VirtAddr::new(start as usize).into());
-    if res < 0 {
-        // 找不到地址
-        return Err(SysError::EFAULT);
-    }
-    Ok(0)
-
+    let mut memory_set = inner.memory_set.lock();
+    memory_set.munmap( start as usize, len)
 }
 pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
     #[derive(Debug, Clone, Copy)]
@@ -385,8 +365,10 @@ pub fn sys_getdents(fd:usize,buf:*mut u8,len:usize)->SysResult<isize>{
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
     let buf = safe_translated_byte_buffer(inner.memory_set.clone(), buf, len);
-    let file = inner.fd_table.get(fd)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd)?;
     let file = file.file();
+    drop(fdtable);
     let _ = file.load_dir()?;
     let mut write_size = 0;
     let mut buf_slice = buf;
@@ -475,8 +457,10 @@ fn parse_fd_path(fd: isize,path:*const u8)->SysResult<String>{
     }
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(fd as usize)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd as usize)?;
     let file = file.file();
+    drop(fdtable);
     let father_path = file.get_dentry().path();
     let child_path = father_path+&path;
     drop(inner);
@@ -487,8 +471,10 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let file = inner.fd_table.get(fd as usize)?;
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd as usize)?;
     let file = file.file();
+    drop(fdtable);
     let mut offset = file.get_offset();
     let mut total_write_size = 0;
     let mut iov_iter = iov;
@@ -549,8 +535,10 @@ pub fn sys_faccessat(dirfd:isize,path:*const u8,_mode:usize,flags:i32)->SysResul
 pub fn sys_lseek(fd:isize,offset:isize,whence:usize)->SysResult<isize>{
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let _file = inner.fd_table.get(fd as usize)?;
-    let _file = _file.file();
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd as usize)?;
+    let _file = file.file();
+    drop(fdtable);
     match whence{
         0=>{
             return _file.seek(offset as i64, SeekFlags::SEEK_SET);
@@ -576,7 +564,7 @@ pub fn sys_utimensat(dirfd:isize,path:*const u8,times:*const crate::task::TimeSp
             _=>{
                 let task = current_task().unwrap();
                 let inner = task.inner_exclusive_access();
-                inode = inner.fd_table.get_file(dirfd as usize)?.get_dentry().get_inode()?;
+                inode = inner.fd_table.lock().get_file(dirfd as usize)?.get_dentry().get_inode()?;
             }
         }
     }
@@ -639,31 +627,32 @@ const F_SETFL:isize = 4;
 //F_UNIMPL,
 pub fn sys_fcntl(fd:isize,op:isize,arg:usize)->SysResult<isize>{
     let task = current_task().unwrap();
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
+    let mut fdtable = inner.fd_table.lock();
     match op{
         F_DUPFD=>{
-            inner.fd_table.dup_with_arg(fd as usize, arg,OpenFlags::empty())
+            inner.fd_table.lock().dup_with_arg(fd as usize, arg,OpenFlags::empty())
         }
         F_DUPFD_CLOEXEC=>{
-            inner.fd_table.dup_with_arg(fd as usize, arg,OpenFlags::CLOEXEC)
+            inner.fd_table.lock().dup_with_arg(fd as usize, arg,OpenFlags::CLOEXEC)
         }
         F_GETFD=>{
-            let fd = inner.fd_table.get(fd as usize)?;
+            let fd = fdtable.get(fd as usize)?;
             return Ok(fd.get_flags().bits() as isize);
         }
         F_SETFD=>{
-            let fd = inner.fd_table.get_mut(fd as usize)?;
+            let fd = fdtable.get_mut(fd as usize)?;
             fd.set_flags(FdFlags::from(OpenFlags::from_bits_retain(arg as u32)));
             return Ok(0);
         }
         F_GETFL=>{
-            let file = inner.fd_table.get(fd as usize)?;
+            let file = fdtable.get(fd as usize)?;
             let file = file.file();
             let flag = file.get_inner().flags.lock();
             return Ok(flag.bits() as isize);
         }
         F_SETFL=>{
-            let file = inner.fd_table.get(fd as usize)?;
+            let file = fdtable.get(fd as usize)?;
             let file = file.file();
             *file.get_inner().flags.lock() = OpenFlags::from_bits_retain(arg as u32);
             return Ok(0);
@@ -678,7 +667,7 @@ pub fn sys_sendfile(outfd:isize,infd:isize,offset:*mut usize,count:usize)->SysRe
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let (outfile,infile) = (inner.fd_table.get_file(outfd as usize)?,inner.fd_table.get_file(infd as usize)?);
+    let (outfile,infile) = (inner.fd_table.lock().get_file(outfd as usize)?,inner.fd_table.lock().get_file(infd as usize)?);
     if !infile.readable() || !outfile.writable() {
         return Err(SysError::EBADF);
     }
@@ -725,7 +714,7 @@ pub fn sys_poll(fds:*mut PollFd,nfds:usize,_timeout:*const TimeSpec)->SysResult<
             let mut reti = 0;
             let task = current_task().unwrap();
             let inner = task.inner_exclusive_access();
-            let file = inner.fd_table.get_file(fd.fd as usize);
+            let file = inner.fd_table.lock().get_file(fd.fd as usize);
             if file.is_err(){
                 fd.revents = fd.revents | PollEvents::POLLINVAL;
                 reti = 1;

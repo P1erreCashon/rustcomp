@@ -130,6 +130,7 @@ fn kernel_callback(context: &mut TrapFrame) -> TrapType {
             TrapType::Time
         }
         Trap::Exception(Exception::StorePageFault) => TrapType::StorePageFault(stval),
+        Trap::Exception(Exception::StoreFault) =>TrapType::StorePageFault(stval),
         Trap::Exception(Exception::InstructionPageFault) => TrapType::InstructionPageFault(stval),
         Trap::Exception(Exception::IllegalInstruction) => TrapType::IllegalInstruction(stval),
         Trap::Exception(Exception::LoadPageFault) => TrapType::LoadPageFault(stval),

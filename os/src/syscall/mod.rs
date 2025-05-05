@@ -40,6 +40,7 @@ const SYSCALL_UTIMENSAT:usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize =94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
+const SYSCALL_FUTEX:usize = 98;
 const SYSCALL_SET_ROBUST_LIST:usize = 99;
 const SYSCALL_GET_ROBUST_LIST:usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
@@ -74,6 +75,7 @@ const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
+const SYSCALL_MADVISE:usize = 233;
 const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_RENAMEAT2: usize = 276;
@@ -85,9 +87,10 @@ mod process;
 
 use alloc::string::String;
 use arch::addr::VirtAddr;
+use arch::time::Time;
 use fs::*;
 use process::*;
-use crate::task::{check_signals_error_of_current, current_task, exit_current_and_run_next, pid2task, suspend_current_and_run_next, SignalFlags};
+use crate::task::{check_signals_error_of_current, current_task, exit_current_and_run_next, tid2task, suspend_current_and_run_next, SignalFlags};
 use crate::task::{TimeSpec, Tms, Utsname, SysInfo};
 use config::RLimit;
 use system_result::{SysResult,SysError};
@@ -133,8 +136,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
         },
         SYSCALL_EXIT => {
-            let pid = current_task().unwrap().pid.0;
-            log_debug!("syscall_exit exit code:{} pid:{}",args[0],pid);
+            let pid = current_task().unwrap().gettid();
+            log_debug!("syscall_exit exit code:{} tid:{}",args[0],pid);
             sys_exit(args[0] as i32);
             
         },
@@ -256,6 +259,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_GETTID=>{//没有用户，返回代表root的0
             result = sys_gettid();
         }
+        SYSCALL_FUTEX=>{
+            result = sys_futex(args[0] as *mut i32, args[1] as u32, args[2] as i32, args[3] as *const TimeSpec, args[4] as *mut u32, args[5] as i32)
+        }
         SYSCALL_SET_ROBUST_LIST=>{//没有影响
             result = Ok(0);
         }
@@ -284,8 +290,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = Ok(0);
         }
         SYSCALL_EXIT_GROUP => {// 无返回值
-            let pid = current_task().unwrap().pid.0;
-            log_debug!("syscall_exit exit code:{} pid:{}", args[0],pid);
+            let pid = current_task().unwrap().gettid();
+            log_debug!("syscall_exit exit code:{} tid:{}", args[0],pid);
             sys_exit_group(args[0] as i32);
         }
         SYSCALL_CLOCK_GETTIME => {
@@ -315,6 +321,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_RT_SIGTIMEDWAIT=>{//TODO
             result = Ok(0);
         }
+        SYSCALL_MADVISE=>{
+            result = Ok(0);
+        }
         SYSCALL_STATX=>{
             result = sys_statx(args[0] as isize,args[1] as *const u8,args[2] as i32,args[3] as u32,args[4] as *mut Statx);
         }
@@ -333,8 +342,8 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         return -(e as isize);
     }   
     else{
-        let pid = current_task().unwrap().pid.0;
-        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_BRK{
+        let pid = current_task().unwrap().gettid();
+        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_FUTEX{
             log_debug!("pid:{} {} result:{}",pid,sysid_to_string(syscall_id),result.clone().unwrap());
         }
         return result.unwrap();
@@ -555,6 +564,12 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_STATX=>{
             ret.push_str("sys_statx");
+        }
+        SYSCALL_FUTEX=>{
+            ret.push_str("sys_futex");
+        }
+        SYSCALL_MADVISE=>{
+            ret.push_str("sys_madvise");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

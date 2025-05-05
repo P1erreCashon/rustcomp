@@ -2,11 +2,11 @@ use core::f32::consts::E;
 use core::ops::Add;
 
 use crate::fs::{open_file,path_to_dentry,path_to_father_dentry,create_file};
-use crate::mm::{frame_alloc, frame_dealloc, translated_ref, translated_refmut, translated_str, MapType};
+use crate::mm::{frame_alloc, frame_dealloc, translated_ref, translated_refmut, translated_str, MapAreaType, MapType};
 use crate::task::{
     self, UNAME,add_task, current_task, current_user_token, 
-    exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,pid2task,remove_from_pid2task,
-    MAX_SIG,SigAction,check_pending_signals
+    exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,tid2task,remove_from_tid2task,
+    MAX_SIG,SigAction,check_pending_signals,FutexKey,futex_wait,futex_wake,futex_requeue
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -23,7 +23,9 @@ use crate::task::{Tms, Utsname, TimeSpec, SysInfo};
 use bitflags::*;
 use system_result::{SysError,SysResult};
 use arch::pagetable::TLB;
-const MODULE_LEVEL:log::Level = log::Level::Trace;
+use crate::timer::add_futex_timer;
+
+const MODULE_LEVEL:log::Level = log::Level::Debug;
 #[allow(unused)]
 pub const PAGE_BIT_LEN: usize = 12;
 #[allow(unused)]
@@ -102,7 +104,7 @@ pub fn sys_get_time(ts:*mut TimeSpec) -> SysResult<isize> {
 }
 
 pub fn sys_getpid() -> SysResult<isize> {
-    Ok(current_task().unwrap().pid.0 as isize)
+    Ok(current_task().unwrap().pid as isize)
 }
 
 pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,mut _tls:*mut i32,mut ctid:*mut i32) -> SysResult<isize> {
@@ -125,27 +127,27 @@ pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,mut _tls:*mut i32
     }
     let flags = flags.unwrap();
     let current_task = current_task().unwrap();
-    let new_task = current_task.fork(flags);    
-    let new_pid = new_task.pid.0;
+    let new_task = current_task.fork(flags,stack_ptr as usize,ctid);    
+    let new_tid = new_task.tid.0;
     // modify trap context of new_task, because it returns immediately after switching
     let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
     // we do not have to move to next instruction since we have done it before
     // for child process, fork returns 0
     //trap_cx.x[10] = 0;
-    trap_cx[TrapFrameArgs::RET] = 0;
-    if !stack_ptr.is_null(){
-        let new_sp = translated_ref(token, stack_ptr);
-        trap_cx[TrapFrameArgs::SP] = new_sp as *const u8 as usize;
+   // trap_cx[TrapFrameArgs::RET] = 0;
+   // if !stack_ptr.is_null(){
+   //     let new_sp = translated_ref(token, stack_ptr);
+   //     trap_cx[TrapFrameArgs::SP] = new_sp as *const u8 as usize;
+   // }
+    if flags.contains(CloneFlags::SETTLS){
+     trap_cx[TrapFrameArgs::TLS] = _tls as usize;
     }
     if flags.contains(CloneFlags::PARENT_SETTID) {
-        *translated_refmut(token, ptid) = new_pid as i32;
-    }
-    if flags.contains(CloneFlags::CHILD_SETTID) {
-        *translated_refmut(token, ctid) = new_pid as i32;
+        *translated_refmut(token, ptid) = new_tid as i32;
     }
     // add new task to scheduler
     add_task(new_task);
-    Ok(new_pid as isize)
+    Ok(new_tid as isize)
 }
 
 pub fn sys_exec(path: *const u8, mut args: *const usize) -> SysResult<isize> {
@@ -217,7 +219,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
             assert_eq!(Arc::strong_count(&child), 1);
             let found_pid = child.getpid();
             // 移除 PID2TCB 中的引用（以防万一）
-            remove_from_pid2task(found_pid);
+            remove_from_tid2task(found_pid);
             // 确认引用计数（仅用于调试，可选）
             log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
             // ++++ temporarily access child PCB exclusively
@@ -249,7 +251,7 @@ pub fn sys_chdir(path: *const u8) -> SysResult<isize> {
 
 
 pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
-  //  log_debug!("brkarg:{:x}",new_brk);
+    log_debug!("brkarg:{:x}",new_brk);
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     let cur_brk = task_inner.heap_top;
@@ -279,12 +281,13 @@ pub fn sys_brk(new_brk:  usize) -> SysResult<isize> {
         
         let page_count = (new_addr.addr() - cur_addr.addr()) / PAGE_SIZE;
         let alloc_start_addr = task_inner.max_data_addr;
-        task_inner.memory_set.lock().push_into_heaparea_lazy(
+        task_inner.memory_set.lock().push_into_area_lazy(
             MapArea::new(
                 VirtAddr::new(alloc_start_addr), //向下
                 VirtAddr::new(new_brk), //向上
                 MapType::Framed,
-                MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X
+                MapPermission::R|MapPermission::U|MapPermission::W|MapPermission::X,
+                MapAreaType::Heap
             ),
         );
         task_inner.max_data_addr += PAGE_SIZE*page_count;
@@ -391,7 +394,7 @@ pub fn sys_getppid()->SysResult<isize>{
         return Err(SysError::ESRCH);
     }
     let parent = inner.parent.clone().unwrap().upgrade().unwrap();
-    let ret = parent.pid.0 as isize;
+    let ret = parent.pid as isize;
     Ok(ret)
 }
 
@@ -410,14 +413,14 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
         task = current_task().unwrap();
     }
     else {
-        if let Some(t) = pid2task(pid){
+        if let Some(t) = tid2task(pid){
             task = t;
         }
         else {
             return Err(SysError::ESRCH);
         }
     }
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
     let resource = Resource::new(resource);
     if resource.is_none(){
         return Err(SysError::EINVAL);
@@ -433,7 +436,7 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
                 }
             },
             Resource::NOFILE=>{
-                limit = inner.fd_table.rlimit();
+                limit = inner.fd_table.lock().rlimit();
             }
             _=>{
                 limit = RLimit{
@@ -448,7 +451,7 @@ pub fn sys_prlimit64(pid: usize,resource: i32,new_limit: *const RLimit,old_limit
         let limit = *translated_ref(token, new_limit);
         match resource {
             Resource::NOFILE=>{
-                inner.fd_table.set_rlimit(limit);
+                inner.fd_table.lock().set_rlimit(limit);
             },
             _=>{}
         }
@@ -561,7 +564,7 @@ impl From<MmapProt> for MapPermission {
 
 pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
 
-   // log_debug!("protect addr= {:x} len= {} prot= {}\n", addr.addr() / PAGE_SIZE, len / PAGE_SIZE, prot);
+  //  println!("protect addr= {:x} len= {:x} prot= {}\n", addr.addr(), len, prot);
 
     // 检查地址是否页对齐
     if (addr.addr() & PAGE_MASK) != 0 {
@@ -577,88 +580,21 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     // 计算虚拟页范围
     let start_vpn: VirtPage = addr.floor().into();
     let end_vpn: VirtPage = VirtAddr::new(addr.addr() + len - 1).ceil().into();
-    let mut split_range = VPNRange::new(start_vpn, end_vpn, addr, VirtAddr::new(addr.addr() + len - 1));
-    let perm = MmapProt::from_bits(prot as u32).unwrap().into(); // 提取权限
-    let mut new_areas = Vec::new();
-    let mut is_find = false;
-
-    // 定义查找区域的辅助函数
-    let mut process_area = |areas: &mut Vec<MapArea>, area_id: i32, is_find: &mut bool| {
-        for ele in areas {
-            if ele.vpn_range.l <= start_vpn && ele.vpn_range.r > start_vpn {
-     //           log_debug!("check ({},{})",ele.vpn_range.l,ele.vpn_range.r);
-                let mut op = -1;
-                new_areas = ele.split_vpn_range(&mut split_range, perm, &mut op);
-                *is_find = true;
-
-                // 根据操作类型决定是否终止
-                if matches!(op, 1 | 2 | 3 | 4) {
-                    return Some(area_id); // 找到并处理完成
-                }
-                else if matches!(op, 5 | 6) {
-                    continue; // 继续处理
-                }
-                else {
-                    panic!("op error in mprotect call");
-                }
-            }
-        }
-        None
-    };
-
-    // 检查 mmap_area、heap_area、areas，并在找到后停止
-    let mut target_area_id = None;
-    if !is_find {
-   //     log_debug!("check normal");
-        target_area_id = process_area(&mut inner.memory_set.lock().areas, 0, &mut is_find);
+    let mut perm = MapPermission::U;
+    if prot & 0x1 != 0{
+        perm |= MapPermission::R;
     }
-    if !is_find && target_area_id.is_none() {
-  //      log_debug!("check mmap");
-        target_area_id = process_area(&mut inner.memory_set.lock().mmap_area, 1, &mut is_find);
+    if prot & 0x2 != 0{
+        perm |= MapPermission::W;
+    }    
+    if prot & 0x4 != 0{
+        perm |= MapPermission::X;
     }
-    if !is_find && target_area_id.is_none() {
-  //      log_debug!("check heap");
-        target_area_id = process_area(&mut inner.memory_set.lock().heap_area, 2, &mut is_find);
-}
-
-    // 新区间插入对应area
-    for new_area in new_areas {
-        if let Some(area) = new_area {
-            for (vpn,frame) in area.data_frames.iter(){
-                inner.memory_set.lock().page_table.map_page(*vpn, frame.ppn, area.map_perm.into(), arch::pagetable::MappingSize::Page4KB);
-            }
-            match target_area_id {
-                Some(0) => inner.memory_set.lock().areas.push(area),
-                Some(1) => inner.memory_set.lock().mmap_area.push(area),
-                Some(2) => inner.memory_set.lock().heap_area.push(area),
-                _ => panic!("wrong area_id in mprotect call!"),
-            }
-        }
-    }
-    inner.memory_set.lock().activate();
-  //  log_debug!("after mprotect:");
-  //  inner.memory_set.debug_addr_info();
-    if is_find {
-        let mut v: usize = start_vpn.value();
-        while v < end_vpn.value() {
-        let vaddr = VirtAddr::new(VirtPage::new(v).to_addr());
-        let memory_set = inner.memory_set.lock();
-        if let Some(paddr) = memory_set.page_table.translate(vaddr) {
-            let ppn = PhysPage::from_addr(paddr.0.addr());
-            let vpn =VirtPage::from_addr(vaddr.addr());
-            memory_set.page_table.map_page(vpn, ppn, perm.into(), arch::pagetable::MappingSize::Page4KB);
-        }
-        
-        v += 1;
-        }
-        inner.memory_set.lock().activate();
-        Ok(0)
-    } else {
-        Err(SysError::ENXIO)
-    }
+    let mut memory_set = inner.memory_set.lock();
+    memory_set.mprotect(start_vpn, end_vpn, perm)
 }
 pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
-    if let Some(process) = pid2task(pid) {
+    if let Some(process) = tid2task(pid) {
         if let Some(flag) = SignalFlags::from_bits(1 << signal) {
             println!("[kernel] sys_kill: Adding signal {} to pid {}", signal, pid);
             let mut inner = process.inner_exclusive_access();
@@ -683,7 +619,7 @@ pub fn sys_sigaction(
     let token = current_user_token();
     let task = current_task().ok_or(SysError::ESRCH)?;
 
-    let mut inner = task.inner_exclusive_access();
+    let inner = task.inner_exclusive_access();
 
     // 检查信号编号是否合法
     if signum <= 0 || signum as usize > MAX_SIG {
@@ -709,23 +645,23 @@ pub fn sys_sigaction(
     }
 
     // 保存旧的信号处理函数
-    let prev_action = inner.signal_actions.table[signum as usize];
+    let prev_action = inner.signal_actions.lock().table[signum as usize];
     if !old_action.is_null() {
         *translated_refmut(token, old_action) = prev_action;
     }
 
     // 设置新的信号处理函数
     if !action.is_null() {
-        inner.signal_actions.table[signum as usize] = *translated_ref(token, action);
+        inner.signal_actions.lock().table[signum as usize] = *translated_ref(token, action);
     }
 
     log_info!(
         "[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",
-        signum, inner.signal_actions.table[signum as usize].handler
+        signum, inner.signal_actions.lock().table[signum as usize].handler
     );
     Ok(0)
 }
-
+ 
 fn check_sigaction_error(signal: SignalFlags) -> bool {
     // 只限制 SIGKILL 和 SIGSTOP
     signal == SignalFlags::SIGKILL || signal == SignalFlags::SIGSTOP
@@ -812,7 +748,7 @@ pub fn sys_sigreturn() -> SysResult<isize> {
     Ok(0)
 }
 pub fn sys_gettid()->SysResult<isize>{
-    Ok(current_task().unwrap().pid.0 as isize)
+    Ok(current_task().unwrap().tid.0 as isize)
 }
 /// 实现 TGKILL 系统调用
 /// tgid: 线程组 ID（通常是进程 ID）
@@ -835,7 +771,7 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
     let task = if tgid == -1 {
         current_task().unwrap()
     } else {
-        match pid2task(tgid as usize) {
+        match tid2task(tgid as usize) {
             Some(task) => task,
             None => {
                 println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
@@ -877,7 +813,7 @@ pub fn sys_clock_nanosleep(clockid: usize,flags:usize,request:*const TimeSpec,re
         CLOCK_REALTIME | CLOCK_MONOTONIC => {
             let token = current_user_token();
             let request = translated_ref(token, request);
-            let req= request.sec * 1000000000 + request.usec; 
+            let req= request.to_usec(); 
             let total_time;
             let mut rem:TimeSpec = TimeSpec{sec:0,usec:0};
             if flags == TIMER_ABSTIME {
@@ -917,4 +853,89 @@ pub fn sys_clock_nanosleep(clockid: usize,flags:usize,request:*const TimeSpec,re
             return Err(SysError::EINVAL);
         }
     }
+}
+
+
+bitflags! {
+    pub struct FutexCmd:u32{
+        const FUTEX_WAIT = 0;
+        const FUTEX_WAKE = 1;
+        const FUTEX_REQUEUE = 3;
+    }
+}
+
+bitflags! {
+    pub struct FutexOpt: u32 {
+        const FUTEX_PRIVATE_FLAG = 128;
+        const FUTEX_CLOCK_REALTIME = 256;
+    }
+}
+
+
+pub fn sys_futex(uaddr1: *mut i32,futex_op: u32,val: i32,timeout: *const TimeSpec,uaddr2: *mut u32,_val3: i32,)->SysResult<isize>{
+    
+    let cmd = FutexCmd::from_bits_truncate(futex_op & 0x7f);
+    let opt = FutexOpt::from_bits_truncate(futex_op);
+    if uaddr1.align_offset(4) != 0 {
+        return Err(SysError::EINVAL);
+    }
+    let token = current_user_token();
+    let task = current_task().unwrap();
+  //  if task.gettid() != 2{
+  //      println!("uaddr:{:x} futexop:{} val:{} val3:{} tid:{} futexword:{}",uaddr1 as usize,futex_op,val,_val3,task.gettid(), *translated_refmut(token, uaddr1));
+  //  }
+    
+    let task_inner = task.inner_exclusive_access();
+    let pa = task_inner
+        .memory_set.lock().page_table.translate(VirtAddr::from(uaddr1 as usize))
+        .unwrap().0;
+
+    let private = opt.contains(FutexOpt::FUTEX_PRIVATE_FLAG);
+    let key = if private {
+        FutexKey::new(pa, task.getpid())
+    } else {
+        FutexKey::new(pa, 0)
+    };
+    match cmd {
+        FutexCmd::FUTEX_WAIT => {
+            let futex_word = translated_refmut(token, uaddr1);
+            if *futex_word != val {
+                return Err(SysError::EAGAIN);
+            }
+            if !timeout.is_null() {
+            //    println!("wait time out is not null");
+                let timeout = translated_ref(token, timeout);
+                let cur = Time::now().to_usec();
+                let tme = TimeSpec{
+                    sec:cur/1000_000_000 + timeout.sec,
+                    usec:cur%1000_000_000 + timeout.usec,
+                };
+                add_futex_timer(tme, current_task().unwrap());
+            }
+            drop(task_inner);
+            drop(task);
+            futex_wait(key)
+        }
+        FutexCmd::FUTEX_WAKE => {
+            drop(task_inner);
+            drop(task);
+        //    *translated_refmut(token, uaddr1) = val;
+            Ok(futex_wake(key, val as usize) as isize)
+        }
+        FutexCmd::FUTEX_REQUEUE => {
+            let pa2 = task_inner
+                .memory_set.lock().page_table.translate(VirtAddr::from(uaddr2 as usize))
+                .ok_or(SysError::EINVAL)?;
+            let new_key = if private {
+                FutexKey::new(pa2.0, task.getpid())
+            } else {
+                FutexKey::new(pa2.0, 0)
+            };
+            drop(task_inner);
+            drop(task);
+            Ok(futex_requeue(key, val, new_key, timeout as i32) as isize)
+        }
+        _ => unimplemented!(),
+    }
+
 }

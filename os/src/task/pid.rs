@@ -3,38 +3,38 @@ use crate::sync::UPSafeCell;
 use alloc::vec::Vec;
 use lazy_static::*;
 use spin::Mutex;
-///Pid Allocator struct
-pub struct PidAllocator {
+///Tid Allocator struct
+pub struct TidAllocator {
     current: usize,
     recycled: Vec<usize>,
 }
 
-impl PidAllocator {
+impl TidAllocator {
     ///Create an empty `PidAllocator`
     pub fn new() -> Self {
-        PidAllocator {
+        TidAllocator {
             current: 0,
             recycled: Vec::new(),
         }
     }
-    ///Allocate a pid
-    pub fn alloc(&mut self) -> PidHandle {
-        if let Some(pid) = self.recycled.pop() {
-            PidHandle(pid)
+    ///Allocate a tid
+    pub fn alloc(&mut self) -> TidHandle {
+        if let Some(tid) = self.recycled.pop() {
+            TidHandle(pid)
         } else {
             self.current += 1;
-            PidHandle(self.current - 1)
+            TidHandle(self.current - 1)
         }
     }
     ///Recycle a pid
-    pub fn dealloc(&mut self, pid: usize) {
-        assert!(pid < self.current);
+    pub fn dealloc(&mut self, tid: usize) {
+        assert!(tid < self.current);
         assert!(
-            !self.recycled.iter().any(|ppid| *ppid == pid),
+            !self.recycled.iter().any(|ppid| *ppid == tid),
             "pid {} has been deallocated!",
-            pid
+            tid
         );
-        self.recycled.push(pid);
+        self.recycled.push(tid);
     }
 }
 

@@ -16,7 +16,7 @@
 //! might not be what you expect.
 //mod context;
 mod manager;
-mod pid;
+//mod pid;
 mod processor;
 mod signal;
 //mod switch;   
@@ -28,21 +28,24 @@ mod tid;
 mod info;
 mod fdtable;
 mod action;
+mod futex;
 
 use crate::fs::open_file;
+use crate::mm::translated_refmut;
 use alloc::sync::Arc;
+use arch::addr::PhysAddr;
 use arch::shutdown;
 use arch::KContext;
 use arch::TrapFrameArgs;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager,wakeup_task, pid2task, insert_into_pid2task, remove_from_pid2task};
-pub use task::{TaskControlBlock, TaskStatus, MapFdControl};
+pub use manager::{fetch_task, TaskManager,wakeup_task, tid2task, insert_into_tid2task, remove_from_tid2task,add_blocked_task};
+pub use task::{TaskControlBlock, TaskStatus};
 pub use info::{Utsname,SysInfo,UNAME};
 pub use time::{Tms,TimeSpec};
 pub use fdtable::{FdTable,Fd,FdFlags};
 use vfs_defs::OpenFlags;
 pub use manager::add_task;
-pub use pid::{pid_alloc,  PidAllocator, PidHandle};
+//pub use pid::{pid_alloc,  PidAllocator, PidHandle};
 pub use tid::{tid_alloc , TidAllocator, TidHandle, TidAddress};
 pub use processor::{
     current_task,  current_user_token, run_tasks, schedule, take_current_task,
@@ -50,6 +53,7 @@ pub use processor::{
 };
 pub use signal::{SignalFlags, SigAction};
 pub use aux::*;
+pub use futex::{FutexKey,futex_wait,futex_wake,futex_requeue};
 
 
 
@@ -74,6 +78,24 @@ pub fn suspend_current_and_run_next() {
     // jump to scheduling cycle
     schedule(task_cx_ptr);
 }
+///
+pub fn block_current_and_run_next() {
+    // There must be an application running.
+    let task = take_current_task().unwrap();
+    log_info!("task:{} blocked",task.getpid());//最好不要显示这个
+    // ---- access current TCB exclusively
+    let mut task_inner = task.inner_exclusive_access();
+    let task_cx_ptr = &mut task_inner.task_cx as *mut KContext;
+    // Change status to Ready
+    task_inner.task_status = TaskStatus::Blocked;
+    drop(task_inner);
+    // ---- release current PCB
+
+    // push back to block queue.
+    add_blocked_task(task);
+    // jump to scheduling cycle
+    schedule(task_cx_ptr);
+}
 /* 
 /// This function must be followed by a schedule
 pub fn block_current_task() -> *mut KContext{
@@ -94,10 +116,23 @@ pub const IDLE_PID: usize = 0;
 /// 终止当前任务并切换到下一个任务
 pub fn exit_current_and_run_next(exit_code: i32) {
     let task = take_current_task().unwrap();
-    let pid = task.getpid();
+    let tid = task.gettid();
+    //println!("task {} exiting",tid);
     // 移除 PID2TCB 中的引用
-    remove_from_pid2task(pid);
+    remove_from_tid2task(tid);
     let mut inner = task.inner_exclusive_access();
+    if inner.tidaddress.clear_child_tid.is_some(){
+        let token = inner.get_user_token();
+        let addr = inner.tidaddress.clear_child_tid.unwrap();
+        *translated_refmut(token, addr as *mut i32) = 0;
+        let paddr = inner.memory_set.lock().page_table.translate(arch::addr::VirtAddr::from(addr as usize))
+        .unwrap().0;
+        let thread_shared_key = FutexKey::new(paddr, task.getpid());
+        futex_wake(thread_shared_key, 1);
+        let process_shared_key = FutexKey::new(paddr, 0);
+        futex_wake(process_shared_key, 1);
+
+    }
     inner.task_status = TaskStatus::Zombie;
     inner.exit_code = exit_code;
     {
@@ -107,11 +142,13 @@ pub fn exit_current_and_run_next(exit_code: i32) {
             initproc_inner.children.push(child.clone());
         }
     }
+    inner.kernel_stack.release();
     inner.children.clear();
-    inner.memory_set.lock().recycle_data_pages();
+    //crate::mm::show_mem_alloced();
     drop(inner);
     drop(task);
     let mut _unused = KContext::blank();
+    //crate::mm::show_mem_alloced();
     schedule(&mut _unused as *mut _);
 }
 
@@ -202,7 +239,7 @@ pub fn check_pending_signals() {
         masked = false;
     } else {
         let handling_sig = handling_sig as usize;
-        if !task_inner.signal_actions.table[handling_sig]
+        if !task_inner.signal_actions.lock().table[handling_sig]
             .mask
             .contains(signal)
         {
@@ -262,7 +299,7 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
 
-    let handler = task_inner.signal_actions.table[sig].handler;
+    let handler = task_inner.signal_actions.lock().table[sig].handler;
     if handler == 0 {
         println!("[kernel] No handler for signal {}, ignoring", sig);
         return;
@@ -273,7 +310,8 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     task_inner.signal_mask_backup = task_inner.signal_mask;
 
     // 设置信号掩码
-    task_inner.signal_mask = task_inner.signal_actions.table[sig].mask;
+    let signal_mask = task_inner.signal_actions.lock().table[sig].mask;
+    task_inner.signal_mask = signal_mask;
 
     task_inner.handling_sig = sig as isize;
 

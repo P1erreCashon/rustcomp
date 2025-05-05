@@ -46,6 +46,7 @@ pub mod mm;
 pub mod sync;
 pub mod syscall;
 pub mod task;
+pub mod timer;
 
 #[macro_use]
 extern  crate logger;
@@ -134,21 +135,23 @@ impl ArchInterface for ArchInterfaceImpl {
                             let r = memory_set.handle_cow_addr(_paddr);
                             if r.is_err(){
                          //       memory_set.debug_addr_info();                                
-                                println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                                println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.getpid());
                                 //      ctx.syscall_ok();
+                                memory_set.debug_addr_info();
                                 drop(memory_set);
                                 drop(inner);
                                 drop(ctask);
-                                exit_current_and_run_next(0);
+                                exit_current_and_run_next(-1);
                             }
                         }
                         _ =>{
-                            println!("err {:x?},sepc:{:x},sepcpage:{:x}", trap_type,ctx.sepc,ctx.sepc/PAGE_SIZE);
+                            println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.getpid());
                             //      ctx.syscall_ok();
+                            memory_set.debug_addr_info();
                             drop(memory_set);
                             drop(inner);
                             drop(ctask);
-                            exit_current_and_run_next(0);
+                            exit_current_and_run_next(-1);
                         }
                     }
 

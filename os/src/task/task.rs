@@ -1,9 +1,9 @@
 //!Implementation of [`TaskControlBlock`]
-use super::{pid_alloc, PidHandle,tid_alloc, TidAddress, TidHandle,current_task,Tms,TimeSpec,FdTable};
+use super::{tid_alloc, TidAddress, TidHandle,current_task,Tms,TimeSpec,FdTable};
 use super::aux::*;
 use config::{KERNEL_STACK_SIZE, USER_MMAP_TOP, USER_STACK_SIZE,RLimit,MAX_FD};
 use crate::fs::{Stdin, Stdout};
-use crate::mm::{translated_refmut, MapArea, MapPermission, MapType, MemorySet};
+use crate::mm::{translated_ref, translated_refmut, MapArea, MapAreaType, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
 use riscv::register::mvendorid;
 use spin::{Mutex, MutexGuard};
@@ -46,71 +46,23 @@ impl KernelStack {
         let bottom = self.inner.as_ptr() as usize;
         (bottom, bottom + KERNEL_STACK_SIZE)
     }
+
+    pub fn release(&mut self){
+        self.inner = Arc::new(vec![0u128;1]);
+    }
 }
 
 ///
 pub struct TaskControlBlock {
     // immutable
     ///
-    pub pid: PidHandle,
+    pub tid: TidHandle,
+    ///
+    pub pid:usize,
     // mutable
     inner: Mutex<TaskControlBlockInner>,
 }
-#[derive(Clone)]
-pub struct MapAreaControl {
-    pub mmap_top: usize,
-    pub mapfd: Vec<MapFdControl>,
-    mapfreeblock: Vec<MapFreeControl>,
-}
-impl MapAreaControl {
-    pub fn new() -> Self {
-        Self { 
-            mmap_top: USER_MMAP_TOP, 
-            mapfd: Vec::new(), 
-            mapfreeblock: Vec::new() 
-        }
-    }
-    // 找到第一个合适的块
-    pub fn find_block(&mut self, num: usize) -> usize {
-        for (i, block) in self.mapfreeblock.iter_mut().enumerate() {
-            if block.num >= num {
-                block.num -= num;
-                if block.num == 0 {
-                    // 移除当前块并返回起始dizhi
-                    return self.mapfreeblock.swap_remove(i).start_va;
-                } else {
-                    return block.start_va;
-                }
-            }
-        }
-        0
-    }
-    // 找fd
-    pub fn find_fd(&mut self, start: usize, len: &mut usize) -> isize {
-        for (i, block) in self.mapfd.iter_mut().enumerate() {
-            if start == block.start_va {
-                *len = self.mapfd[i].len;
-                return self.mapfd.swap_remove(i).fd as isize;
-            }
-        }
-        return -1;
-    }
-}
-///
-#[derive(Clone)]
-pub struct MapFdControl {
-    ///
-    pub fd: usize,
-    ///
-    pub len: usize,
-    ///
-    pub start_va: usize,
-}
-#[derive(Clone)]
-pub struct MapFreeControl {
-    pub start_va: usize,
-    pub num: usize,
-}
+
 pub struct TaskControlBlockInner {
     pub trap_cx: TrapFrame,
     #[allow(unused)]
@@ -122,7 +74,7 @@ pub struct TaskControlBlockInner {
     pub parent: Option<Weak<TaskControlBlock>>,
     pub children: Vec<Arc<TaskControlBlock>>,//why use Arc:TaskManager->TCB & TCB.children->TCB & TaskManager creates Arc<TCB>
     pub exit_code: i32,
-    pub fd_table: FdTable,//Vec<Option<Arc<dyn File + Send + Sync>>>,
+    pub fd_table: Arc<Mutex<FdTable>>,//Vec<Option<Arc<dyn File + Send + Sync>>>,
    // pub fd_table_rlimit:RLimit,
     pub signals: SignalFlags, // 新增：未处理的信号
     pub signal_queue: Vec<usize>, // 新增：信号队列，按发送顺序存储
@@ -130,7 +82,7 @@ pub struct TaskControlBlockInner {
     pub frozen: bool,
     pub signal_mask: SignalFlags,      // 信号掩码
     pub signal_mask_backup: SignalFlags, // 保存原始信号掩码
-    pub signal_actions: SignalActions, // 信号处理函数表
+    pub signal_actions: Arc<Mutex<SignalActions>>, // 信号处理函数表
     pub handling_sig: isize,           // 当前正在处理的信号
     pub trap_ctx_backup: Option<TrapFrame>, // 添加 trap_ctx_backup 字段
     pub cwd:Arc<dyn Dentry>,//工作目录
@@ -139,7 +91,6 @@ pub struct TaskControlBlockInner {
     pub stack_bottom: usize,
     pub max_data_addr: usize,
     pub tms: Tms,
-    pub mapareacontrol: MapAreaControl,
 
     pub tidaddress:TidAddress,
     //pub mmap_top: usize,
@@ -193,10 +144,12 @@ impl TaskControlBlock {
         let (memory_set, user_sp, entry_point, heap_top,_entry_size,_ph_count,_tls_addr,_phdr) = MemorySet::from_elf(elf_data);
 
         // alloc a pid and a kernel stack in kernel space
-        let pid_handle = pid_alloc();
+        let tid_handle = tid_alloc();
+        let pid = tid_handle.0;
         let kstack = KernelStack::new();
         let task_control_block = Self {
-            pid: pid_handle,
+            tid: tid_handle,
+            pid,
             inner: 
                 Mutex::new(TaskControlBlockInner {
                     trap_cx:TrapFrame::new(),
@@ -207,7 +160,7 @@ impl TaskControlBlock {
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
-                    fd_table: FdTable::new(),
+                    fd_table: Arc::new(Mutex::new(FdTable::new())),
                     cwd:get_root_dentry(),
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals
@@ -215,14 +168,13 @@ impl TaskControlBlock {
                     frozen: false,
                     signal_mask: SignalFlags::empty(),
                     signal_mask_backup: SignalFlags::empty(),
-                    signal_actions: SignalActions::new(),
+                    signal_actions: Arc::new(Mutex::new(SignalActions::new())),
                     handling_sig: -1,
                     heap_top: heap_top,
                     heap_bottom: heap_top,
                     stack_bottom: user_sp - USER_STACK_SIZE,
                     max_data_addr: heap_top,
                     tms: Tms::new(),
-                    mapareacontrol: MapAreaControl::new(),
                     //mmap_top: USER_MMAP_TOP,
                     tidaddress:TidAddress::new(),
                     trap_ctx_backup: None, // 初始化 trap_ctx_backup
@@ -259,7 +211,6 @@ impl TaskControlBlock {
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
         self.inner_exclusive_access().max_data_addr = heap_top;
         self.inner_exclusive_access().tms= Tms::new();
-        self.inner_exclusive_access().mapareacontrol = MapAreaControl::new();
         memory_set.activate();
         //1. 使用0标记栈底，压入一个用于glibc的伪随机数，并以16字节对齐
         let token = memory_set.token();
@@ -381,28 +332,71 @@ impl TaskControlBlock {
         // **** release current PCB
     }
     ///
-    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags) -> Arc<TaskControlBlock> {
+    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags,stack:usize,ctid:*mut i32) -> Arc<TaskControlBlock> {
+        //crate::mm::show_mem_alloced();
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
         // copy user space(include trap context)
         let memory_set;
+        let fd_table;
+        let signal_actions;
+        let signal_mask;
+        let mut tidaddress = TidAddress::new();
+        let mut trap_cx = parent_inner.trap_cx.clone();
+        let tid_handle = tid_alloc();
+        let pid;
+        if flags.contains(CloneFlags::FILES) {
+            fd_table = Arc::clone(&parent_inner.fd_table);
+        }
+        else{
+            fd_table = Arc::new(Mutex::new(FdTable::from_existed_table(&parent_inner.fd_table.lock())));
+        }        
         if flags.contains(CloneFlags::VM) {
-            memory_set = parent_inner.memory_set.clone();
+            memory_set = Arc::clone(&parent_inner.memory_set);
         }
         else {
             memory_set = Arc::new(Mutex::new(MemorySet::from_existed_user(&parent_inner.memory_set.lock())));
         }
+        if flags.contains(CloneFlags::SIGHAND){
+            signal_actions = Arc::clone(&parent_inner.signal_actions);
+        }
+        else{
+            signal_actions = Arc::new(Mutex::new(SignalActions::new()));
+        }
+        if flags.contains(CloneFlags::THREAD) {
+            signal_mask = SignalFlags::empty();
+            pid = self.pid;
+        } else {
+            signal_mask = parent_inner.signal_mask.clone();
+            trap_cx[TrapFrameArgs::RET] = 0;
+            pid = tid_handle.0;
+        }
+        if stack != 0{
+            let token = parent_inner.get_user_token();
+            let entry_point = translated_ref(token, stack as *const usize);
+            let arg = translated_ref(token, (stack + 8) as *const usize);
+        //    println!("entrypoint:{:x} arg:{:x}",*entry_point,*arg);
+            trap_cx[TrapFrameArgs::SEPC] = *entry_point;
+            trap_cx[TrapFrameArgs::RET] = *arg;
+            trap_cx[TrapFrameArgs::SP] = stack;
+        }
+     //   println!("fork ctid:{:x}",ctid as usize);
+        if flags.contains(CloneFlags::CHILD_SETTID) {
+            tidaddress.set_child_tid = Some(ctid as usize);
+        }
+        if flags.contains(CloneFlags::CHILD_CLEARTID) {
+            tidaddress.clear_child_tid = Some(ctid as usize);
+        } 
         // alloc a pid and a kernel stack in kernel space
-        let pid_handle = pid_alloc();
+        
         let kstack = KernelStack::new();
-        // copy fd table
-        let new_fd_table = FdTable::from_existed_table(&parent_inner.fd_table);
-        log::debug!("fork curproc={} new proc={}",self.getpid(),pid_handle.0);
+        log::debug!("fork curproc={} new proc={}",self.getpid(),tid_handle.0);
         let task_control_block = Arc::new(TaskControlBlock {
-            pid: pid_handle,
+            tid: tid_handle,
+            pid,
             inner: 
                 Mutex::new(TaskControlBlockInner {
-                    trap_cx: parent_inner.trap_cx.clone(),
+                    trap_cx,
                     base_size: parent_inner.base_size,
                     task_cx: blank_kcontext(kstack.get_position().1),
                     task_status: TaskStatus::Ready,
@@ -410,29 +404,29 @@ impl TaskControlBlock {
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
                     exit_code: 0,
-                    fd_table: new_fd_table,
+                    fd_table,
                     cwd:parent_inner.cwd.clone(),
                     kernel_stack: kstack,
                     signals: Default::default(),  // 使用 Default::default() 初始化 signals
                     killed: false,
                     frozen: false,
-                    signal_mask: SignalFlags::empty(),
+                    signal_mask,
                     signal_mask_backup: SignalFlags::empty(),
-                    signal_actions: SignalActions::new(),
+                    signal_actions,
                     handling_sig: -1,
                     heap_top: parent_inner.heap_top,
                     heap_bottom: parent_inner.heap_bottom,
                     stack_bottom: parent_inner.stack_bottom,
                     max_data_addr: parent_inner.max_data_addr,
                     tms: Tms::from_other_task(&parent_inner.tms),
-                    mapareacontrol: parent_inner.mapareacontrol.clone(),
                     //mmap_top: parent_inner.mmap_top,
-                    tidaddress:TidAddress::new(),
+                    tidaddress,
                     trap_ctx_backup: None, // 初始化 trap_ctx_backup
                     signal_queue: Vec::new(),
                 })
             ,
         });
+
         parent_inner.children.push(task_control_block.clone());
         // modify kernel_sp in trap_cx
         // **** access child PCB exclusively
@@ -443,7 +437,11 @@ impl TaskControlBlock {
     }
     ///
     pub fn getpid(&self) -> usize {
-        self.pid.0
+        self.pid
+    }
+    ///
+    pub fn gettid(&self) ->usize {
+        self.tid.0
     }
 }
 

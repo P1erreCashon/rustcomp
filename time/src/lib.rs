@@ -13,6 +13,12 @@ pub struct TimeSpec {
     pub usec: usize,
 }
 
+impl TimeSpec{
+    pub fn to_usec(&self)->usize{
+        self.sec*1000_000_000+self.usec
+    }
+}
+
 #[repr(C)]
 ///
 pub struct Tms { //记录起始时间

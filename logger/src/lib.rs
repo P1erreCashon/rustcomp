@@ -11,7 +11,7 @@ pub trait LogIf: Send + Sync {
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Error // 在这里修改日志等级
+        metadata.level() <= Level::Error// 在这里修改日志等级
     }
 
     fn log(&self, record: &Record) {
