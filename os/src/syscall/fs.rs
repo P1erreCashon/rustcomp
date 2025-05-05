@@ -631,10 +631,10 @@ pub fn sys_fcntl(fd:isize,op:isize,arg:usize)->SysResult<isize>{
     let mut fdtable = inner.fd_table.lock();
     match op{
         F_DUPFD=>{
-            inner.fd_table.lock().dup_with_arg(fd as usize, arg,OpenFlags::empty())
+            fdtable.dup_with_arg(fd as usize, arg,OpenFlags::empty())
         }
         F_DUPFD_CLOEXEC=>{
-            inner.fd_table.lock().dup_with_arg(fd as usize, arg,OpenFlags::CLOEXEC)
+            fdtable.dup_with_arg(fd as usize, arg,OpenFlags::CLOEXEC)
         }
         F_GETFD=>{
             let fd = fdtable.get(fd as usize)?;
