@@ -195,10 +195,7 @@ pub fn check_pending_signals() {
 
     // 如果当前正在处理一个信号，延迟处理其他信号
     if task_inner.handling_sig != -1 {
-        println!(
-            "[kernel] Signal handling in progress (sig={}), deferring other signals",
-            task_inner.handling_sig
-        );
+        //println!("[kernel] Signal handling in progress (sig={}), deferring other signals",task_inner.handling_sig);
         return;
     }
 
@@ -210,22 +207,19 @@ pub fn check_pending_signals() {
     let signal = match SignalFlags::from_bits(1 << sig) {
         Some(signal) => signal,
         None => {
-            println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, removing", sig);
+            //println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, removing", sig);
             task_inner.signal_queue.remove(0);
             return;
         }
     };
 
     if !task_inner.signals.contains(signal) {
-        println!("[kernel] Signal {} not in task.signals, removing from queue", sig);
+        //println!("[kernel] Signal {} not in task.signals, removing from queue", sig);
         task_inner.signal_queue.remove(0);
         return;
     }
 
-    println!(
-        "[kernel] Signal {} found in task.signals, mask: {:?}, handling_sig: {}",
-        sig, task_inner.signal_mask, task_inner.handling_sig
-    );
+    //println!("[kernel] Signal {} found in task.signals, mask: {:?}, handling_sig: {}",sig, task_inner.signal_mask, task_inner.handling_sig);
 
     if task_inner.signal_mask.contains(signal) {
         // 移除日志打印
@@ -247,11 +241,11 @@ pub fn check_pending_signals() {
         }
     }
     if masked {
-        println!("[kernel] Signal {} is masked by handling_sig {}", sig, handling_sig);
+       // println!("[kernel] Signal {} is masked by handling_sig {}", sig, handling_sig);
         return;
     }
 
-    println!("[kernel] Signal {} is not masked, proceeding to handle", sig);
+    //println!("[kernel] Signal {} is not masked, proceeding to handle", sig);
 
     task_inner.signal_queue.remove(0);
 
@@ -269,27 +263,27 @@ pub fn check_pending_signals() {
 }
 
 /// 处理内核态信号
-pub fn call_kernel_signal_handler(sig: usize, signal: SignalFlags) {
+pub fn call_kernel_signal_handler(_sig: usize, signal: SignalFlags) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
     match signal {
         SignalFlags::SIGSTOP => {
             task_inner.frozen = true;
             task_inner.signals.remove(SignalFlags::SIGSTOP);
-            println!("[kernel] Task {} stopped by SIGSTOP", task.getpid());
+           // println!("[kernel] Task {} stopped by SIGSTOP", task.getpid());
         }
         SignalFlags::SIGCONT => {
             task_inner.frozen = false;
             task_inner.signals.remove(SignalFlags::SIGCONT);
-            println!("[kernel] Task {} continued by SIGCONT", task.getpid());
+           // println!("[kernel] Task {} continued by SIGCONT", task.getpid());
         }
         SignalFlags::SIGKILL => {
             task_inner.killed = true;
-            println!("[kernel] Task {} killed by SIGKILL", task.getpid());
+           // println!("[kernel] Task {} killed by SIGKILL", task.getpid());
         }
         _ => {
             task_inner.killed = true;
-            println!("[kernel] Task {} terminated by signal {}", task.getpid(), sig);
+           // println!("[kernel] Task {} terminated by signal {}", task.getpid(), sig);
         }
     }
 }
@@ -301,7 +295,7 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
 
     let handler = task_inner.signal_actions.lock().table[sig].handler;
     if handler == 0 {
-        println!("[kernel] No handler for signal {}, ignoring", sig);
+        //println!("[kernel] No handler for signal {}, ignoring", sig);
         return;
     }
 
@@ -319,7 +313,7 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     trap_ctx[TrapFrameArgs::SEPC] = handler;
     trap_ctx[TrapFrameArgs::ARG0] = (sig as i32) as usize; // 修正：将 sig 转换为 i32 后再转换为 usize
 
-    println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
+    //println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
 }
 
 pub fn check_signals_error_of_current() -> Option<(isize, &'static str)> {

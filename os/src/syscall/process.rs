@@ -724,11 +724,11 @@ pub fn sys_sigreturn() -> SysResult<isize> {
 
     // 恢复 trap 上下文
     if let Some(backup) = task_inner.trap_ctx_backup.take() {
-        let sepc = backup[TrapFrameArgs::SEPC];
+        //let sepc = backup[TrapFrameArgs::SEPC];
         *task_inner.get_trap_cx() = backup;
-        println!("[kernel] sys_sigreturn: Restoring trap context, sepc={:#x}", sepc);
+        //println!("[kernel] sys_sigreturn: Restoring trap context, sepc={:#x}", sepc);
     } else {
-        println!("[kernel] sys_sigreturn: No trap context backup found!");
+        //println!("[kernel] sys_sigreturn: No trap context backup found!");
         return Err(SysError::EINVAL);
     }
 
@@ -737,7 +737,7 @@ pub fn sys_sigreturn() -> SysResult<isize> {
 
     // 重置 handling_sig
     task_inner.handling_sig = -1;
-    println!("[kernel] sys_sigreturn: handling_sig reset to -1");
+    //println!("[kernel] sys_sigreturn: handling_sig reset to -1");
 
     drop(task_inner);
     drop(task);
@@ -759,11 +759,11 @@ pub fn sys_gettid()->SysResult<isize>{
 /// tid: 线程 ID
 /// sig: 要发送的信号编号
 pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
-    println!("[kernel] sys_tgkill: tgid={}, tid={}, sig={}", tgid, tid, sig);
+   // println!("[kernel] sys_tgkill: tgid={}, tid={}, sig={}", tgid, tid, sig);
 
     // 检查信号编号是否合法
     if sig < 0 || sig as usize > MAX_SIG {
-        println!("[kernel] sys_tgkill: Invalid signal number: {}", sig);
+   //     println!("[kernel] sys_tgkill: Invalid signal number: {}", sig);
         return Err(SysError::EINVAL);
     }
 
@@ -774,7 +774,7 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
         match tid2task(tgid as usize) {
             Some(task) => task,
             None => {
-                println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
+     //           println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
                 return Err(SysError::ESRCH);
             }
         }
@@ -782,27 +782,27 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
 
     // 检查 tid 是否与 tgid 匹配（简化实现，假设 tid 必须等于 tgid）
     if tid != tgid {
-        println!("[kernel] sys_tgkill: Thread {} not found in thread group {}", tid, tgid);
+     //   println!("[kernel] sys_tgkill: Thread {} not found in thread group {}", tid, tgid);
         return Err(SysError::ESRCH);
     }
 
     // 检查权限（当前进程是否可以向目标进程发送信号）
     let current_pid = current_task().unwrap().getpid();
     if tgid as usize != current_pid {
-        println!("[kernel] sys_tgkill: Permission denied to send signal {} to tgid={}", sig, tgid);
+     //   println!("[kernel] sys_tgkill: Permission denied to send signal {} to tgid={}", sig, tgid);
         return Err(SysError::EPERM);
     }
 
     // 将信号添加到目标任务的信号集
     if let Some(flag) = SignalFlags::from_bits(1 << sig) {
-        println!("[kernel] sys_tgkill: Sent signal {} to tgid={}, tid={}", sig, tgid, tid);
+     //   println!("[kernel] sys_tgkill: Sent signal {} to tgid={}, tid={}", sig, tgid, tid);
         let mut inner = task.inner_exclusive_access();
         inner.signals |= flag;
         inner.signal_queue.push(sig as usize);
         drop(inner);
         Ok(0)
     } else {
-        println!("[kernel] sys_tgkill: Invalid signal {}", sig);
+    //    println!("[kernel] sys_tgkill: Invalid signal {}", sig);
         Err(SysError::EINVAL)
     }
 }
