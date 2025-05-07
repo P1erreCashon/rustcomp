@@ -1,7 +1,7 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 use arch::addr::VirtPage;
 //use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
-use arch::pagetable::{PageTable,MappingFlags};
+use arch::pagetable::{MappingFlags, MappingSize, PageTable};
 use arch::{TrapType, PAGE_SIZE};
 use alloc::string::{String,ToString};
 use _core::str::from_utf8_unchecked;
@@ -125,7 +125,7 @@ pub fn safe_translated_refmut<T>(memory_set: Arc<Mutex<MemorySet>>, ptr: *mut T)
             }
         }
         Some((pa,_mp)) => {
-            if pa.addr() == 0 {
+            if pa.addr() == 0 || !_mp.contains(MappingFlags::P){println!("safe addr some 0");
                 let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
                 if r.is_err(){
                     let _ = memory_set.handle_cow_addr(va.addr());

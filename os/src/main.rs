@@ -121,7 +121,7 @@ impl ArchInterface for ArchInterfaceImpl {
                 let id = ctx[TrapFrameArgs::SYSCALL];
                 let result = syscall(ctx[TrapFrameArgs::SYSCALL], [args[0], args[1], args[2],args[3],args[4],args[5]]);
                 // cx is changed during sys_exec, so we have to call it again
-                if id != 93{//exec don't return
+                if id != 93 && id != 139{//exec sigreturn don't return
                     ctx[TrapFrameArgs::RET] = result as usize;//exec中这一句会干死glibc的动态链接器
                 }
             }
@@ -135,7 +135,7 @@ impl ArchInterface for ArchInterfaceImpl {
                             let r = memory_set.handle_cow_addr(_paddr);
                             if r.is_err(){
                          //       memory_set.debug_addr_info();                                
-                                println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.getpid());
+                                println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.gettid());
                                 //      ctx.syscall_ok();
                                 memory_set.debug_addr_info();
                                 drop(memory_set);
@@ -145,7 +145,7 @@ impl ArchInterface for ArchInterfaceImpl {
                             }
                         }
                         _ =>{
-                            println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.getpid());
+                            println!("err {:x?},sepc:{:x},sepcpage:{:x} id:{}", trap_type,ctx[TrapFrameArgs::SEPC],ctx[TrapFrameArgs::SEPC]/PAGE_SIZE,ctask.gettid());
                             //      ctx.syscall_ok();
                             memory_set.debug_addr_info();
                             drop(memory_set);

@@ -147,10 +147,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_KILL => {
             log_debug!("syscall_kill pid={} signal={}", args[0], args[1]);
-            result = sys_kill(args[0], args[1] as u32);
+            result = sys_kill(args[0], args[1]);
         },
         SYSCALL_SIGACTION => {
-            result = sys_sigaction(args[0] as i32, args[1] as *const _, args[2] as *mut _);
+            result = sys_sigaction(args[0], args[1] as *const _, args[2] as *mut _);
         }
         SYSCALL_SIGPROCMASK => {
             result = sys_sigprocmask(args[0] as i32, args[1] as *const _, args[2] as *mut _);
@@ -313,7 +313,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
         }
         SYSCALL_TGKILL => {
-            result = sys_tgkill(args[0] as isize, args[1] as isize, args[2] as i32);
+            result = sys_tgkill(args[0] as isize, args[1] as isize, args[2]);
         },
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);

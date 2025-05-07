@@ -31,14 +31,16 @@ mod action;
 mod futex;
 
 use crate::fs::open_file;
-use crate::mm::translated_refmut;
+use crate::mm::{translated_refmut,safe_translated_refmut};
 use alloc::sync::Arc;
 use arch::addr::PhysAddr;
-use arch::shutdown;
+use arch::{shutdown, SIG_RETURN_ADDR};
 use arch::KContext;
 use arch::TrapFrameArgs;
+use config::{USER_STACK_SIZE, USER_STACK_TOP};
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager,wakeup_task, tid2task, insert_into_tid2task, remove_from_tid2task,add_blocked_task};
+pub use signal::{SigActionFlags,SigDetails,UserContext,SignalStack,into_mcontext};
 pub use task::{TaskControlBlock, TaskStatus};
 pub use info::{Utsname,SysInfo,UNAME};
 pub use time::{Tms,TimeSpec};
@@ -51,14 +53,14 @@ pub use processor::{
     current_task,  current_user_token, run_tasks, schedule, take_current_task,
     Processor, PROCESSOR
 };
-pub use signal::{SignalFlags, SigAction};
+pub use signal::{SignalFlags, SigAction,SigInfo};
 pub use aux::*;
 pub use futex::{FutexKey,futex_wait,futex_wake,futex_requeue};
 
 
 
 const MODULE_LEVEL:log::Level = log::Level::Trace;
-pub const MAX_SIG: usize = 31;
+pub const MAX_SIG: usize = 33;
 
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
@@ -204,7 +206,7 @@ pub fn check_pending_signals() {
     }
 
     let sig = task_inner.signal_queue[0];
-    let signal = match SignalFlags::from_bits(1 << sig) {
+    let signal = match SignalFlags::from_bits(1 << (sig.signum - 1)) {
         Some(signal) => signal,
         None => {
             //println!("[kernel] check_pending_signals: Signal {} not in SignalFlags, removing", sig);
@@ -256,9 +258,9 @@ pub fn check_pending_signals() {
         || signal == SignalFlags::SIGSTOP
         || signal == SignalFlags::SIGCONT
     {
-        call_kernel_signal_handler(sig, signal);
+        call_kernel_signal_handler(sig.signum as usize, signal);
     } else {
-        call_user_signal_handler(sig, signal);
+        call_user_signal_handler(sig.signum, signal,sig);
     }
 }
 
@@ -289,11 +291,11 @@ pub fn call_kernel_signal_handler(_sig: usize, signal: SignalFlags) {
 }
 
 /// 处理用户态信号
-pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
+pub fn call_user_signal_handler(sig: i32, _signal: SignalFlags,info:SigInfo) {
     let task = current_task().unwrap();
     let mut task_inner = task.inner_exclusive_access();
 
-    let handler = task_inner.signal_actions.lock().table[sig].handler;
+    let handler = task_inner.signal_actions.lock().table[sig as usize].handler;
     if handler == 0 {
         //println!("[kernel] No handler for signal {}, ignoring", sig);
         return;
@@ -304,14 +306,55 @@ pub fn call_user_signal_handler(sig: usize, _signal: SignalFlags) {
     task_inner.signal_mask_backup = task_inner.signal_mask;
 
     // 设置信号掩码
-    let signal_mask = task_inner.signal_actions.lock().table[sig].mask;
+    let signal_mask = task_inner.signal_actions.lock().table[sig as usize].mask;
     task_inner.signal_mask = signal_mask;
 
     task_inner.handling_sig = sig as isize;
 
     let trap_ctx = task_inner.get_trap_cx();
     trap_ctx[TrapFrameArgs::SEPC] = handler;
-    trap_ctx[TrapFrameArgs::ARG0] = (sig as i32) as usize; // 修正：将 sig 转换为 i32 后再转换为 usize
+    trap_ctx[TrapFrameArgs::ARG0] = sig as usize;
+    let sig_table = task_inner.signal_actions.lock();
+    if sig_table.table[sig as usize].flags.contains(SigActionFlags::SIGINFO){
+        #[derive(Default, Copy, Clone)]
+        #[repr(C)]
+        pub struct LinuxSigInfo {
+            pub si_signo: i32,
+            pub si_errno: i32,
+            pub si_code: i32,
+            pub _pad: [i32; 29],
+            _align: [u64; 0],
+        }        
+        trap_ctx[TrapFrameArgs::SP] -= core::mem::size_of::<UserContext>();
+        let sig_sp = trap_ctx[TrapFrameArgs::SP];
+        let sig_size = sig_sp - (USER_STACK_TOP - USER_STACK_SIZE);
+        trap_ctx[TrapFrameArgs::SP] -= core::mem::size_of::<LinuxSigInfo>();
+        let linuxinfo_sp = trap_ctx[TrapFrameArgs::SP];
+        task_inner.memory_set.lock().activate();
+        *safe_translated_refmut(task_inner.memory_set.clone(), sig_sp as *mut UserContext)
+        = UserContext{
+            flags: 0,
+            link: 0,
+            stack: SignalStack::new(linuxinfo_sp, sig_size),
+            sigmask: task_inner.signal_mask,
+            __pad: [0u8; 128],
+            mcontext: into_mcontext(trap_ctx),
+        };
+        let mut linuxsiginfo = LinuxSigInfo::default();
+        linuxsiginfo.si_signo = sig as i32;
+        linuxsiginfo.si_code = info.code;
+        linuxsiginfo._pad[1] = task.getpid() as i32;
+        *safe_translated_refmut(task_inner.memory_set.clone(), linuxinfo_sp as *mut LinuxSigInfo) = linuxsiginfo;
+        trap_ctx[TrapFrameArgs::ARG1] = trap_ctx[TrapFrameArgs::SP];
+
+        // ra
+       // println!("sigreturn:{:x} tid:{} handler:{:x}",SIG_RETURN_ADDR as usize,task.gettid(),handler);
+        trap_ctx[TrapFrameArgs::RA] = if sig_table.table[sig as usize].flags.contains(SigActionFlags::RESTORER){
+            sig_table.table[sig as usize].restore
+        } else {
+            SIG_RETURN_ADDR as usize
+        };
+    }
 
     //println!("[kernel] Calling user signal handler for signal {} at {:#x}", sig, handler);
 }

@@ -1,6 +1,6 @@
 // os/src/task/action.rs
 
-use crate::task::signal::{SigAction, SignalFlags};
+use crate::task::signal::{SigAction, SignalFlags,SigActionFlags};
 use super::MAX_SIG; // 从父模块导入 MAX_SIG
 
 /// 信号处理函数表，包含每个信号的处理函数
@@ -15,6 +15,8 @@ impl SignalActions {
         // 初始化所有信号的处理函数为默认值（handler = 0，mask 为空）
         let default_action = SigAction {
             handler: 0, // 默认无处理函数
+            flags:SigActionFlags::empty(),
+            restore: 0,
             mask: SignalFlags::empty(),
         };
         SignalActions {

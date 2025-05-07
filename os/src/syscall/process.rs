@@ -6,7 +6,7 @@ use crate::mm::{frame_alloc, frame_dealloc, translated_ref, translated_refmut, t
 use crate::task::{
     self, UNAME,add_task, current_task, current_user_token, 
     exit_current_and_run_next, suspend_current_and_run_next,SignalFlags,tid2task,remove_from_tid2task,
-    MAX_SIG,SigAction,check_pending_signals,FutexKey,futex_wait,futex_wake,futex_requeue
+    MAX_SIG,SigAction,check_pending_signals,FutexKey,futex_wait,futex_wake,futex_requeue,SigInfo,SigDetails
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -200,7 +200,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
     if !inner
         .children
         .iter()
-        .any(|p| pid == -1 || pid as usize == p.getpid())
+        .any(|p| pid == -1 || pid as usize == p.gettid())
     {
         return Err(SysError::ESRCH);
         // ---- release current PCB
@@ -216,10 +216,10 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
         if let Some((idx, _)) = pair {
             let child = inner.children.remove(idx);
             // confirm that child will be deallocated after being removed from children list
-            assert_eq!(Arc::strong_count(&child), 1);
-            let found_pid = child.getpid();
+            let found_pid = child.gettid();
             // 移除 PID2TCB 中的引用（以防万一）
             remove_from_tid2task(found_pid);
+            assert_eq!(Arc::strong_count(&child), 1);
             // 确认引用计数（仅用于调试，可选）
             log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));
             // ++++ temporarily access child PCB exclusively
@@ -593,9 +593,9 @@ pub fn sys_mprotect(addr: VirtAddr, len: usize, prot: i32) -> SysResult<isize> {
     let mut memory_set = inner.memory_set.lock();
     memory_set.mprotect(start_vpn, end_vpn, perm)
 }
-pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
+pub fn sys_kill(pid: usize, signal: usize) -> SysResult<isize> {
     if let Some(process) = tid2task(pid) {
-        if let Some(flag) = SignalFlags::from_bits(1 << signal) {
+        if let Some(flag) = SignalFlags::from_bits(1 << (signal - 1)) {
             println!("[kernel] sys_kill: Adding signal {} to pid {}", signal, pid);
             let mut inner = process.inner_exclusive_access();
             inner.signals |= flag;
@@ -612,7 +612,7 @@ pub fn sys_kill(pid: usize, signal: u32) -> SysResult<isize> {
 }
 
 pub fn sys_sigaction(
-    signum: i32,
+    signum: usize ,
     action: *const SigAction,
     old_action: *mut SigAction,
 ) -> SysResult<isize> {
@@ -622,13 +622,13 @@ pub fn sys_sigaction(
     let inner = task.inner_exclusive_access();
 
     // 检查信号编号是否合法
-    if signum <= 0 || signum as usize > MAX_SIG {
-        log_info!("[kernel] sys_sigaction: Invalid signal number: {}", signum);
+    if signum > MAX_SIG {
+        println!("[kernel] sys_sigaction: Invalid signal number: {}", signum);
         return Err(SysError::EINVAL);
     }
 
     // 将 signum 转换为 SignalFlags
-    let flag = match SignalFlags::from_bits(1 << signum) {
+    let flag = match SignalFlags::from_bits(1 << (signum - 1)) {
         Some(flag) => flag,
         None => {
             log_info!("[kernel] sys_sigaction: Signal {} not in SignalFlags, but proceeding", signum);
@@ -638,7 +638,7 @@ pub fn sys_sigaction(
 
     // 检查参数是否合法
     if check_sigaction_error(flag) {
-        log_info!(
+        println!(
             "[kernel] sys_sigaction: Invalid parameters for signal: {:?}", flag
         );
         return Err(SysError::EINVAL);
@@ -652,13 +652,20 @@ pub fn sys_sigaction(
 
     // 设置新的信号处理函数
     if !action.is_null() {
-        inner.signal_actions.lock().table[signum as usize] = *translated_ref(token, action);
+        let action = translated_ref(token, action);
+        let new_sig: SigAction = if action.handler == 0 {
+            SigAction::new(signum)
+        } else if action.handler == 1 {
+            // 忽略
+            SigAction::ignore()
+        } else {
+            *action
+        };
+
+        inner.signal_actions.lock().table[signum as usize] = new_sig;
     }
 
-    log_info!(
-        "[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",
-        signum, inner.signal_actions.lock().table[signum as usize].handler
-    );
+   // println!("[kernel] sys_sigaction: Set signal handler for signum={}, handler={:#x}",signum, inner.signal_actions.lock().table[signum as usize].handler);
     Ok(0)
 }
  
@@ -725,8 +732,9 @@ pub fn sys_sigreturn() -> SysResult<isize> {
     // 恢复 trap 上下文
     if let Some(backup) = task_inner.trap_ctx_backup.take() {
         //let sepc = backup[TrapFrameArgs::SEPC];
+     //   println!("[kernel] sys_sigreturn: Restoring trap context, arg0={:x} sepc={:x}", backup[TrapFrameArgs::ARG0], backup[TrapFrameArgs::SEPC]);
         *task_inner.get_trap_cx() = backup;
-        //println!("[kernel] sys_sigreturn: Restoring trap context, sepc={:#x}", sepc);
+        
     } else {
         //println!("[kernel] sys_sigreturn: No trap context backup found!");
         return Err(SysError::EINVAL);
@@ -758,11 +766,11 @@ pub fn sys_gettid()->SysResult<isize>{
 /// tgid: 线程组 ID（通常是进程 ID）
 /// tid: 线程 ID
 /// sig: 要发送的信号编号
-pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
+pub fn sys_tgkill(tgid: isize, tid: isize, sig: usize) -> SysResult<isize> {
    // println!("[kernel] sys_tgkill: tgid={}, tid={}, sig={}", tgid, tid, sig);
 
     // 检查信号编号是否合法
-    if sig < 0 || sig as usize > MAX_SIG {
+    if sig > MAX_SIG {
    //     println!("[kernel] sys_tgkill: Invalid signal number: {}", sig);
         return Err(SysError::EINVAL);
     }
@@ -771,7 +779,7 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
     let task = if tgid == -1 {
         current_task().unwrap()
     } else {
-        match tid2task(tgid as usize) {
+        match tid2task(tid as usize) {
             Some(task) => task,
             None => {
      //           println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
@@ -780,25 +788,24 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: i32) -> SysResult<isize> {
         }
     };
 
-    // 检查 tid 是否与 tgid 匹配（简化实现，假设 tid 必须等于 tgid）
-    if tid != tgid {
-     //   println!("[kernel] sys_tgkill: Thread {} not found in thread group {}", tid, tgid);
-        return Err(SysError::ESRCH);
-    }
 
     // 检查权限（当前进程是否可以向目标进程发送信号）
-    let current_pid = current_task().unwrap().getpid();
-    if tgid as usize != current_pid {
+    let current_tid = current_task().unwrap().gettid();
+    if tgid as usize != current_tid {
      //   println!("[kernel] sys_tgkill: Permission denied to send signal {} to tgid={}", sig, tgid);
         return Err(SysError::EPERM);
     }
 
     // 将信号添加到目标任务的信号集
-    if let Some(flag) = SignalFlags::from_bits(1 << sig) {
+    if let Some(flag) = SignalFlags::from_bits(1 << (sig - 1)) {
      //   println!("[kernel] sys_tgkill: Sent signal {} to tgid={}, tid={}", sig, tgid, tid);
         let mut inner = task.inner_exclusive_access();
         inner.signals |= flag;
-        inner.signal_queue.push(sig as usize);
+        inner.signal_queue.push(SigInfo{
+            signum:sig as i32,
+            code:SigInfo::TKILL,
+            details: SigDetails::Kill { pid: task.getpid() },
+        });
         drop(inner);
         Ok(0)
     } else {
