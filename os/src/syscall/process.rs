@@ -194,7 +194,7 @@ pub fn sys_exec(path: *const u8, mut args: *const usize) -> SysResult<isize> {
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
     let task = current_task().unwrap();
     // find a child process
-    log_debug!("waitpid pid={}",pid);
+    //log_debug!("waitpid pid={}",pid);
     // ---- access current PCB exclusively
     let inner = task.inner_exclusive_access();
     if !inner
@@ -219,6 +219,8 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
             let found_pid = child.gettid();
             // 移除 PID2TCB 中的引用（以防万一）
             remove_from_tid2task(found_pid);
+           // println!("watied tid:{} count:{}",found_pid,Arc::strong_count(&child));
+           // crate::task::deb();
             assert_eq!(Arc::strong_count(&child), 1);
             // 确认引用计数（仅用于调试，可选）
             log::debug!("Child strong count after removal: {}", Arc::strong_count(&child));

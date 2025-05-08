@@ -1,4 +1,4 @@
-TARGET := riscv64gc-unknown-none-elf
+#TARGET := riscv64gc-unknown-none-elf
 MODE := release
 APP_DIR := src/bin
 TARGET_DIR := target/$(TARGET)/$(MODE)

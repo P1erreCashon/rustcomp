@@ -12,12 +12,12 @@ use user_lib::{exec, fork, wait, yield_,chdir};
 fn main() -> i32 {
     println!("initproc");
  //   chdir("/glibc\0");
- //   let mut args_copy: Vec<String> =Vec::new();
- //   args_copy.push(String::from("sh"));
+   // let mut args_copy: Vec<String> =Vec::new();
+  //  args_copy.push(String::from("sh"));
   //  let mut args_addr: Vec<*const u8> = args_copy.iter().map(|arg| arg.as_ptr()).collect();
- //   args_addr.push(core::ptr::null::<u8>());
+  //  args_addr.push(core::ptr::null::<u8>());
     if fork() == 0 {
-     //   exec("/glibc/busybox\0", &args_addr);
+    //    exec("busybox\0", &args_addr);
      exec("user_shell\0", &[core::ptr::null::<u8>()]);
     } else {
         loop {

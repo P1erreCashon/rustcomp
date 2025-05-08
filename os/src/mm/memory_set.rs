@@ -133,10 +133,12 @@ impl MemorySet {
         return Err(SysError::EADDRNOTAVAIL);
     }
     pub fn handle_cow_addr(&mut self,addr:usize)->SysResult<isize>{
+        println!("handle cow addr:{:x}",addr);
         for area in self.areas.iter_mut(){
             if area.vpn_range.get_start().to_addr() <= addr && area.vpn_range.get_end().to_addr() > addr{
                 if let Some((_ppn,mut mp)) = self.page_table.translate(VirtAddr::from(addr)){
                     if mp.contains(MappingFlags::cow){
+                        println!("addr:{:x} is cow",addr);
                         let vpn = VirtPage::new(addr/PAGE_SIZE);
                         let frame = area.data_frames.get(&vpn).unwrap();
                         if Arc::strong_count(frame) == 1{
@@ -350,6 +352,7 @@ impl MemorySet {
                     header_va = start_va.addr();
                     found_header_va = true;
                 }
+                println!("s :{:x} e:{:x}",ph.virtual_addr() as usize + offset,(ph.virtual_addr() + ph.mem_size()) as usize + offset);
                 let mut map_perm = MapPermission::U;
                 let ph_flags = ph.flags();
                 if ph_flags.is_read() {

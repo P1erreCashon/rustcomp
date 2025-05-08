@@ -125,7 +125,7 @@ pub fn safe_translated_refmut<T>(memory_set: Arc<Mutex<MemorySet>>, ptr: *mut T)
             }
         }
         Some((pa,_mp)) => {
-            if pa.addr() == 0 || !_mp.contains(MappingFlags::P){println!("safe addr some 0");
+            if pa.addr() == 0 || !_mp.contains(MappingFlags::P){
                 let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
                 if r.is_err(){
                     let _ = memory_set.handle_cow_addr(va.addr());

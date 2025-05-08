@@ -99,6 +99,7 @@ bitflags! {
 
 
 /// 信号处理动作结构体
+#[cfg(any(target_arch = "riscv64"))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct SigAction {
@@ -107,6 +108,18 @@ pub struct SigAction {
     pub restore: usize,
     pub mask: SignalFlags,   // 信号掩码
 }
+
+/// 信号处理动作结构体
+#[cfg(any(target_arch = "loongarch64"))]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SigAction {
+    pub handler: usize,      // 信号处理函数地址
+    pub flags: SigActionFlags,
+    pub mask: SignalFlags,   // 信号掩码
+    pub restore: usize,
+}
+
 impl SigAction{
     pub fn new(signo: usize) -> Self {
         let handler: usize;
@@ -288,7 +301,7 @@ impl SignalStack {
 pub struct GeneralRegs {
     pub x: [usize; 32],
 }
-
+#[cfg(any(target_arch = "riscv64"))]
 /// FP registers
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -327,14 +340,33 @@ pub struct UserContext {
     pub mcontext: MachineContext,
 }
 
+
+#[cfg(any(target_arch = "loongarch64"))]
+pub fn into_mcontext(trap_cx:&arch::TrapFrame)->MachineContext{
+    MachineContext{
+        gp:GeneralRegs{x:trap_cx.regs,},            
+        fp:FloatRegs{
+                f:[0usize;32],
+                fcsr:0,
+                fcc:0
+            }
+    }
+}
+#[cfg(any(target_arch = "loongarch64"))]
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FloatRegs {
+    pub f: [usize; 32],
+    pub fcsr: u32,
+    pub fcc: u8,
+}
+
+
 #[cfg(any(target_arch = "loongarch64"))]
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy)]
 pub struct MachineContext {
-    pc: usize,
     gp:GeneralRegs,
-    flags:u32,
-
     fp: FloatRegs,
 }
 
@@ -346,5 +378,6 @@ pub struct UserContext {
     pub link: usize,
     pub stack: SignalStack,
     pub sigmask: SignalFlags,
+    pub __pad: [u8; 128],
     pub mcontext: MachineContext,
 }

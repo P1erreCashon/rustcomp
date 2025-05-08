@@ -47,6 +47,7 @@ pub use time::{Tms,TimeSpec};
 pub use fdtable::{FdTable,Fd,FdFlags};
 use vfs_defs::OpenFlags;
 pub use manager::add_task;
+pub use manager::deb;
 //pub use pid::{pid_alloc,  PidAllocator, PidHandle};
 pub use tid::{tid_alloc , TidAllocator, TidHandle, TidAddress};
 pub use processor::{
@@ -149,6 +150,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     //crate::mm::show_mem_alloced();
     drop(inner);
     drop(task);
+    //manager::deb();
     let mut _unused = KContext::blank();
     //crate::mm::show_mem_alloced();
     schedule(&mut _unused as *mut _);
