@@ -127,7 +127,7 @@ pub fn sys_clone(flags:usize,stack_ptr:*const u8,ptid:*mut i32,mut _tls:*mut i32
     }
     let flags = flags.unwrap();
     let current_task = current_task().unwrap();
-    let new_task = current_task.fork(flags,stack_ptr as usize,ctid);    
+    let new_task = current_task.fork(flags,stack_ptr as usize,ctid,false);    
     let new_tid = new_task.tid.0;
     // modify trap context of new_task, because it returns immediately after switching
     let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
@@ -947,4 +947,47 @@ pub fn sys_futex(uaddr1: *mut i32,futex_op: u32,val: i32,timeout: *const TimeSpe
         _ => unimplemented!(),
     }
 
+}
+
+#[allow(unused)]
+#[repr(C)]
+pub struct Clone3Args {
+    flags:usize,        /* 进程创建的标志位 */
+    pidfd:usize,        /* 用于存储 PID 文件描述符的地址 (int *) */
+    ctid:usize,    /* 子进程中用于存储 TID 的地址 (pid_t *) */
+    ptid:usize,   /* 父进程中用于存储 TID 的地址 (pid_t *) */
+    exit_signal:usize,  /* 子进程退出时发送给父进程的信号 */
+    stack_ptr:usize,        /* 子进程栈的最低地址 */
+    stack_size:usize,   /* 子进程栈的大小 */
+    tls:usize,          /* 新线程的线程本地存储 (TLS) 的地址 */
+    set_tid:usize,     /* 指向 pid_t 数组的指针，用于设置特定的 TID（自 Linux 5.5 起） */
+    set_tid_size:usize, /* set_tid 数组的元素数量（自 Linux 5.5 起） */
+    cgroup:usize,      /* 子进程目标 cgroup 的文件描述符（自 Linux 5.7 起） */
+}
+
+pub fn sys_clone3(args:*const Clone3Args) -> SysResult<isize> {
+    let token = current_user_token();
+    let args = translated_ref(token, args);
+    let tls = args.tls;
+    let ctid = args.ctid;
+    let flags = CloneFlags::from_bits(args.flags as u64 & !0xff);
+    if flags.is_none(){
+        return Err(SysError::EINVAL);
+    }
+    let flags = flags.unwrap();
+    let current_task = current_task().unwrap();
+    let new_task = current_task.fork(flags,args.stack_ptr as usize + args.stack_size,ctid as *mut i32,true);    
+    let new_tid = new_task.tid.0;
+    // modify trap context of new_task, because it returns immediately after switching
+    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+    // we do not have to move to next instruction since we have done it before
+    if flags.contains(CloneFlags::SETTLS){
+     trap_cx[TrapFrameArgs::TLS] = tls as usize;
+    }
+    if flags.contains(CloneFlags::PARENT_SETTID) {
+        *translated_refmut(token, args.ptid as *mut i32) = new_tid as i32;
+    }
+    // add new task to scheduler
+    add_task(new_task);
+    Ok(new_tid as isize)
 }

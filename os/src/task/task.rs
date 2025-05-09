@@ -332,7 +332,7 @@ impl TaskControlBlock {
         // **** release current PCB
     }
     ///
-    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags,stack:usize,ctid:*mut i32) -> Arc<TaskControlBlock> {
+    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags,stack:usize,ctid:*mut i32,is_clone3:bool) -> Arc<TaskControlBlock> {
         //crate::mm::show_mem_alloced();
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
@@ -371,15 +371,20 @@ impl TaskControlBlock {
             trap_cx[TrapFrameArgs::RET] = 0;
             pid = tid_handle.0;
         }
-        if stack != 0{
-            let token = parent_inner.get_user_token();
-            let entry_point = translated_ref(token, stack as *const usize);
-            let arg = translated_ref(token, (stack + 8) as *const usize);
-        //    println!("entrypoint:{:x} arg:{:x}",*entry_point,*arg);
-            trap_cx[TrapFrameArgs::SEPC] = *entry_point;
-            trap_cx[TrapFrameArgs::RET] = *arg;
-            trap_cx[TrapFrameArgs::ARG0] = *arg;
+        if stack != 0{            
             trap_cx[TrapFrameArgs::SP] = stack;
+            if is_clone3{
+                trap_cx[TrapFrameArgs::RET] = 0;
+            }
+            else{ 
+                let token = parent_inner.get_user_token();
+                let entry_point = translated_ref(token, stack as *const usize);
+                let arg = translated_ref(token, (stack + 8) as *const usize);
+        //    println!("entrypoint:{:x} arg:{:x}",*entry_point,*arg);
+                trap_cx[TrapFrameArgs::SEPC] = *entry_point;
+                trap_cx[TrapFrameArgs::RET] = *arg;
+                trap_cx[TrapFrameArgs::ARG0] = *arg;
+            }
         }
      //   println!("fork ctid:{:x}",ctid as usize);
         if flags.contains(CloneFlags::CHILD_SETTID) {

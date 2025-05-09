@@ -127,7 +127,7 @@ impl ArchInterface for ArchInterfaceImpl {
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
                 let ctask = current_task().unwrap();
-                println!("pgfault addr:{:x} tid:{}",_paddr,ctask.gettid());
+               // println!("pgfault addr:{:x} tid:{}",_paddr,ctask.gettid());
                 let inner = ctask.inner_exclusive_access();
                 let mut memory_set = inner.memory_set.lock();
                 if memory_set.handle_lazy_addr(_paddr, trap_type).is_err() {

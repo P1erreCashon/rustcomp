@@ -667,7 +667,8 @@ pub fn sys_sendfile(outfd:isize,infd:isize,offset:*mut usize,count:usize)->SysRe
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let (outfile,infile) = (inner.fd_table.lock().get_file(outfd as usize)?,inner.fd_table.lock().get_file(infd as usize)?);
+    let table = inner.fd_table.lock();
+    let (outfile,infile) = (table.get_file(outfd as usize)?,table.get_file(infd as usize)?);
     if !infile.readable() || !outfile.writable() {
         return Err(SysError::EBADF);
     }

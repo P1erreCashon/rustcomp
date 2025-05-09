@@ -11,7 +11,7 @@ cd $RUNENV_PREFIX
 	-M virt, \
 	-kernel /home/pierrecashon/rustcomp/os/target/loongarch64-unknown-none/release/os -m 1G -nographic -smp 1 -drive file=~/rustcomp/user/target/riscv64gc-unknown-none-elf/release/fs.img,if=none,format=raw,id=x0  \
     -device virtio-blk-pci,drive=x0 \
-    -rtc base=utc 
+    -rtc base=utc
 #	-S -s
 
 	 

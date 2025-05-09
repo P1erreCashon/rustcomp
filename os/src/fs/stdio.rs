@@ -18,6 +18,11 @@ pub struct Stdout{
     inner:FileInner
 }
 
+///Standard output
+pub struct Stderr{
+    inner:FileInner
+}
+
 pub struct StdIO{
     buf:Mutex<Option<u8>>,
     inner:FileInner
@@ -32,6 +37,13 @@ impl Stdin{
     }
 }
 impl Stdout{
+    pub fn new(inner:FileInner)->Self{
+        Self{
+            inner
+        }
+    }
+}
+impl Stderr{
     pub fn new(inner:FileInner)->Self{
         Self{
             inner
@@ -154,6 +166,36 @@ impl File for Stdout {
             }
         } */
         print!("{}", core::str::from_utf8(_buf).unwrap());
+        _buf.len()
+    }
+    fn get_offset(&self)->MutexGuard<usize> {
+        self.get_inner().offset.lock()
+    }
+    fn poll(&self, _events: PollEvents) -> PollEvents {
+        return PollEvents::POLLOUT;
+    }
+}
+
+impl File for Stderr {
+    fn readable(&self) -> bool {
+        false
+    }
+    fn writable(&self) -> bool {
+        true
+    }
+    fn read(&self, _user_buf: &mut[u8]) -> usize {
+        panic!("Cannot read from stdout!");
+    }
+    fn write(&self, user_buf: &[u8]) -> usize {
+        user_buf.len()
+    }
+    fn get_inner(&self)->&FileInner {
+        &self.inner
+    }
+    fn read_at(&self, _offset: usize, _buf: &mut [u8])->usize {
+        unimplemented!()
+    }
+    fn write_at(&self, _offset: usize, _buf: &[u8])->usize {
         _buf.len()
     }
     fn get_offset(&self)->MutexGuard<usize> {

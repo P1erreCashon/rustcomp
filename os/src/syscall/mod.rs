@@ -95,6 +95,7 @@ const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GET_RANDOM: usize = 278;
 const SYSCALL_STATX: usize = 291;
+const SYSCALL_CLONE3: usize = 435;
 
 mod fs;
 mod process;
@@ -383,6 +384,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_STATX=>{
             result = sys_statx(args[0] as isize,args[1] as *const u8,args[2] as i32,args[3] as u32,args[4] as *mut Statx);
         }
+        SYSCALL_CLONE3=>{
+            result = sys_clone3(args[0] as *const Clone3Args);
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     // 在系统调用返回前检查信号
@@ -670,6 +674,9 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_SETSID=>{
             ret.push_str("sys_setsid");
+        }
+        SYSCALL_CLONE3=>{
+            ret.push_str("sys_clone3");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

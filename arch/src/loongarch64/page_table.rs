@@ -68,6 +68,9 @@ impl From<MappingFlags> for PTEFlags {
 impl Into<MappingFlags> for PTEFlags {
     fn into(self) -> MappingFlags {
         let mut flags = MappingFlags::empty();
+        if self.contains(PTEFlags::V){
+            flags |= MappingFlags::P;
+        }
         if self.contains(PTEFlags::W) {
             flags |= MappingFlags::W;
         }
