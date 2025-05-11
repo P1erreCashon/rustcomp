@@ -30,6 +30,7 @@ const SYSCALL_GETDENTS64:usize = 61;
 const SYSCALL_LSEEK:usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_SENDFILE:usize = 71;
 const SYSCALL_PPOLL:usize = 73;
@@ -51,6 +52,7 @@ const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
 const SYSCALL_SETUID: usize =146;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_TKILL: usize = 130;
 const SYSCALL_TGKILL: usize = 131;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
@@ -114,7 +116,9 @@ use crate::task::check_pending_signals;
 pub use process::CloneFlags;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
-   // println!("syscallid:{}",syscall_id);
+   // if syscall_id!=260{
+   //     println!("syscallid:{}",syscall_id);
+   // }
     let result:SysResult<isize>;
     match syscall_id {
         SYSCALL_IOCTL => {
@@ -146,6 +150,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_WRITE =>{
             result = sys_write(args[0], args[1] as *mut u8, args[2]);
       //      log_debug!("syscall_write result:{}",result);
+        },
+        SYSCALL_READV =>{
+            result = sys_readv(args[0] as isize, args[1] as *const IoVec, args[2]);
         },
         SYSCALL_WRITEV =>{
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
@@ -369,6 +376,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SYSLOG => {
             result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
         }
+        SYSCALL_TKILL => {
+            result = sys_tkill(args[0] as isize, args[1]);
+        },
         SYSCALL_TGKILL => {
             result = sys_tgkill(args[0] as isize, args[1] as isize, args[2]);
         },
@@ -677,6 +687,12 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_CLONE3=>{
             ret.push_str("sys_clone3");
+        }
+        SYSCALL_READV=>{
+            ret.push_str("sys_readv");
+        }
+        SYSCALL_TKILL=>{
+            ret.push_str("sys_tkill");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

@@ -9,7 +9,7 @@ use alloc::{
 };
 use lru::LruCache;
 use super::Dentry;
-const DENTRY_LRU_SIZE:usize = 400;//must be bigger than max dir size,or getdents will be wrong
+const DENTRY_LRU_SIZE:usize = 1000;//must be bigger than max dir size,or getdents will be wrong
 pub struct DentryCache{
     intenal_list:BTreeMap<(usize,String),Arc<dyn Dentry>>,
     leaf_list:LruCache<(usize,String),Arc<dyn Dentry>>,

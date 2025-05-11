@@ -32,7 +32,9 @@ mod futex;
 
 use crate::fs::open_file;
 use crate::mm::{translated_refmut,safe_translated_refmut};
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use arch::addr::PhysAddr;
 use arch::{shutdown, SIG_RETURN_ADDR};
 use arch::KContext;
@@ -155,13 +157,20 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     //crate::mm::show_mem_alloced();
     schedule(&mut _unused as *mut _);
 }
+#[allow(unused)]
+#[cfg(any(target_arch = "riscv64"))]
+static ELF_BINARY: &[u8] = include_bytes!("../../../testinit/initprocrv");
+#[allow(unused)]
+#[cfg(any(target_arch = "loongarch64"))]
+static ELF_BINARY: &[u8] = include_bytes!("../../../testinit/initprocla");
 
 lazy_static! {
     ///Globle process that init user shell
     pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new({
-        let inode = open_file("initproc", OpenFlags::RDONLY).unwrap();
-        let v = inode.read_all();
-        TaskControlBlock::new(v.as_slice())
+//        let inode = open_file("initproc", OpenFlags::RDONLY).unwrap();
+ //       let v = inode.read_all();
+ //       TaskControlBlock::new(v.as_slice())
+       TaskControlBlock::new(ELF_BINARY)
     });
 }
 ///Add init process to the manager

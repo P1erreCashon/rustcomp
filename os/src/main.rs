@@ -50,8 +50,10 @@ pub mod timer;
 
 #[macro_use]
 extern  crate logger;
+use fs::open_file;
 use logger::*;
 use task::current_task;
+use vfs_defs::OpenFlags;
 use core::arch::global_asm;
 
 //use drivers::{chardevice::{CharDevice, UART}, BLOCK_DEVICE};
@@ -127,7 +129,8 @@ impl ArchInterface for ArchInterfaceImpl {
             }
             StorePageFault(_paddr) | LoadPageFault(_paddr) | InstructionPageFault(_paddr) => {
                 let ctask = current_task().unwrap();
-               // println!("pgfault addr:{:x} tid:{}",_paddr,ctask.gettid());
+              //  println!("pgfault addr:{:x} tid:{}",_paddr,ctask.gettid());
+              //  println!("trap_type @ {:x?} {:#x?}", trap_type, ctx);
                 let inner = ctask.inner_exclusive_access();
                 let mut memory_set = inner.memory_set.lock();
                 if memory_set.handle_lazy_addr(_paddr, trap_type).is_err() {
@@ -211,6 +214,7 @@ impl ArchInterface for ArchInterfaceImpl {
         vfs::add_tty(ttydentry,alloc::sync::Arc::new( ttyinode));
         println!("vfs init");
         fs::list_apps();
+        create_testcase();
         task::add_initproc();
         println!("initproc add");
     //    *DEV_NON_BLOCKING_ACCESS.lock() = true;
@@ -234,3 +238,452 @@ impl ArchInterface for ArchInterfaceImpl {
 
     }
 }
+
+#[allow(unused)]
+fn create_testcase(){
+    let testfile = open_file("/testcase.sh", OpenFlags::RDWR | OpenFlags::CREATE).unwrap();
+    let busyboxcmd = open_file("/glibc/busybox_cmd.txt", OpenFlags::RDWR).unwrap();
+    busyboxcmd.write(BUSYBOX_SCRIPT.as_bytes());
+    drop(busyboxcmd);
+    let busyboxcmd = open_file("/musl/busybox_cmd.txt", OpenFlags::RDWR).unwrap();
+    busyboxcmd.write(BUSYBOX_SCRIPT.as_bytes());
+    drop(busyboxcmd);
+    testfile.write("cd /glibc\n/glibc/busybox sh busybox_testcode.sh\n".as_bytes());
+    testfile.write("cd /musl\n./busybox sh busybox_testcode.sh\n".as_bytes());
+    testfile.write("cd /glibc\n./busybox sh libcbench_testcode.sh\n".as_bytes());
+    testfile.write("cd /musl\n./busybox sh libcbench_testcode.sh\n".as_bytes());
+    let luatestcode = open_file("/glibc/lua_testcode.sh", OpenFlags::RDWR).unwrap();
+    luatestcode.write(LUA_SCRIPT_GLIBC.as_bytes());
+    drop(luatestcode);
+    let luatestcode = open_file("/musl/lua_testcode.sh", OpenFlags::RDWR).unwrap();
+    luatestcode.write(LUA_SCRIPT_MUSL.as_bytes());
+    drop(luatestcode);
+   // testfile.write("cd /glibc\n./busybox sh lua_testcode.sh\n".as_bytes());
+ //   testfile.write("cd /musl\n./busybox sh lua_testcode.sh\n".as_bytes());
+    let runstatic = open_file("/glibc/run-static.sh", OpenFlags::RDWR).unwrap();
+    runstatic.write(LIBCTEST_SCRIPT_GLIBC.as_bytes());
+    drop(runstatic);
+    let runstatic = open_file("/musl/run-static.sh", OpenFlags::RDWR).unwrap();
+    runstatic.write(LIBCTEST_SCRIPT_MUSL.as_bytes());
+    drop(runstatic);
+    testfile.write("cd /glibc\n./busybox sh run-static.sh\n".as_bytes());
+    testfile.write("cd /musl\n./busybox sh run-static.sh\n".as_bytes());
+}
+const BUSYBOX_SCRIPT: &str = r#####"echo "#### independent command test"
+ash -c exit
+sh -c exit
+basename /aaa/bbb
+cal
+clear
+date 
+df 
+dirname /aaa/bbb
+dmesg 
+du
+expr 1 + 1
+false
+true
+which ls
+uname
+uptime
+printf "abc\n"
+ps
+pwd
+free
+hwclock
+kill 10
+ls
+sleep 1
+echo "#### file opration test"
+touch test.txt
+echo "hello world" > test.txt
+cat test.txt
+cut -c 3 test.txt
+od test.txt
+head test.txt
+tail test.txt 
+hexdump -C test.txt 
+md5sum test.txt
+echo "ccccccc" >> test.txt
+echo "bbbbbbb" >> test.txt
+echo "aaaaaaa" >> test.txt
+echo "2222222" >> test.txt
+echo "1111111" >> test.txt
+echo "bbbbbbb" >> test.txt
+sort test.txt | ./busybox uniq
+stat test.txt
+strings test.txt 
+wc test.txt
+[ -f test.txt ]
+more test.txt
+rm test.txt
+mkdir test_dir
+mv test_dir test
+rmdir test
+grep hello busybox_cmd.txt
+cp busybox_cmd.txt busybox_cmd.bak
+rm busybox_cmd.bak                                                                                       
+"#####;
+
+
+const LUA_SCRIPT_GLIBC: &str = r#####"./busybox echo "#### OS COMP TEST GROUP START lua-glibc ####"
+./busybox sh ./test.sh date.lua
+./busybox sh ./test.sh file_io.lua
+./busybox sh ./test.sh max_min.lua
+./busybox sh ./test.sh random.lua
+./busybox sh ./test.sh remove.lua
+./busybox sh ./test.sh round_num.lua
+./busybox sh ./test.sh sin30.lua
+./busybox sh ./test.sh sort.lua
+./busybox sh ./test.sh strings.lua
+./busybox echo "#### OS COMP TEST GROUP END lua-glibc ####"
+"#####;
+
+const LUA_SCRIPT_MUSL: &str = r#####"./busybox echo "#### OS COMP TEST GROUP START lua-musl ####"
+./busybox sh ./test.sh date.lua
+./busybox sh ./test.sh file_io.lua
+./busybox sh ./test.sh max_min.lua
+./busybox sh ./test.sh random.lua
+./busybox sh ./test.sh remove.lua
+./busybox sh ./test.sh round_num.lua
+./busybox sh ./test.sh sin30.lua
+./busybox sh ./test.sh sort.lua
+./busybox sh ./test.sh strings.lua
+./busybox echo "#### OS COMP TEST GROUP END lua-musl ####"
+"#####;
+
+
+
+#[cfg(any(target_arch = "riscv64"))]
+const LIBCTEST_SCRIPT_GLIBC: &str = r#####"./busybox echo "#### OS COMP TEST GROUP START libctest-glibc ####"
+./runtest.exe -w entry-static.exe argv
+./runtest.exe -w entry-static.exe basename
+./runtest.exe -w entry-static.exe clocale_mbfuncs
+./runtest.exe -w entry-static.exe clock_gettime
+./runtest.exe -w entry-static.exe dirname
+./runtest.exe -w entry-static.exe env
+./runtest.exe -w entry-static.exe fdopen
+./runtest.exe -w entry-static.exe fnmatch
+./runtest.exe -w entry-static.exe fscanf
+./runtest.exe -w entry-static.exe fwscanf
+./runtest.exe -w entry-static.exe iconv_open
+./runtest.exe -w entry-static.exe inet_pton
+./runtest.exe -w entry-static.exe mbc
+./runtest.exe -w entry-static.exe memstream
+./runtest.exe -w entry-static.exe pthread_cancel_points
+./runtest.exe -w entry-static.exe pthread_cancel
+./runtest.exe -w entry-static.exe pthread_cond
+./runtest.exe -w entry-static.exe pthread_tsd
+#./runtest.exe -w entry-static.exe qsort
+./runtest.exe -w entry-static.exe random
+./runtest.exe -w entry-static.exe search_hsearch
+./runtest.exe -w entry-static.exe search_insque
+./runtest.exe -w entry-static.exe search_lsearch
+./runtest.exe -w entry-static.exe search_tsearch
+./runtest.exe -w entry-static.exe setjmp
+./runtest.exe -w entry-static.exe snprintf
+#./runtest.exe -w entry-static.exe socket
+./runtest.exe -w entry-static.exe sscanf
+./runtest.exe -w entry-static.exe sscanf_long
+./runtest.exe -w entry-static.exe stat
+./runtest.exe -w entry-static.exe strftime
+./runtest.exe -w entry-static.exe string
+./runtest.exe -w entry-static.exe string_memcpy
+./runtest.exe -w entry-static.exe string_memmem
+./runtest.exe -w entry-static.exe string_memset
+./runtest.exe -w entry-static.exe string_strchr
+./runtest.exe -w entry-static.exe string_strcspn
+./runtest.exe -w entry-static.exe string_strstr
+./runtest.exe -w entry-static.exe strptime
+./runtest.exe -w entry-static.exe strtod
+./runtest.exe -w entry-static.exe strtod_simple
+./runtest.exe -w entry-static.exe strtof
+./runtest.exe -w entry-static.exe strtol
+./runtest.exe -w entry-static.exe strtold
+./runtest.exe -w entry-static.exe swprintf
+./runtest.exe -w entry-static.exe tgmath
+./runtest.exe -w entry-static.exe time
+./runtest.exe -w entry-static.exe tls_align
+./runtest.exe -w entry-static.exe udiv
+./runtest.exe -w entry-static.exe ungetc
+./runtest.exe -w entry-static.exe utime
+./runtest.exe -w entry-static.exe wcsstr
+./runtest.exe -w entry-static.exe wcstol
+#./runtest.exe -w entry-static.exe daemon_failure
+./runtest.exe -w entry-static.exe dn_expand_empty
+./runtest.exe -w entry-static.exe dn_expand_ptr_0
+#./runtest.exe -w entry-static.exe fflush_exit
+./runtest.exe -w entry-static.exe fgets_eof
+./runtest.exe -w entry-static.exe fgetwc_buffering
+./runtest.exe -w entry-static.exe fpclassify_invalid_ld80
+./runtest.exe -w entry-static.exe ftello_unflushed_append
+./runtest.exe -w entry-static.exe getpwnam_r_crash
+./runtest.exe -w entry-static.exe getpwnam_r_errno
+./runtest.exe -w entry-static.exe iconv_roundtrips
+./runtest.exe -w entry-static.exe inet_ntop_v4mapped
+./runtest.exe -w entry-static.exe inet_pton_empty_last_field
+./runtest.exe -w entry-static.exe iswspace_null
+./runtest.exe -w entry-static.exe lrand48_signextend
+./runtest.exe -w entry-static.exe lseek_large
+./runtest.exe -w entry-static.exe malloc_0
+./runtest.exe -w entry-static.exe mbsrtowcs_overflow
+./runtest.exe -w entry-static.exe memmem_oob_read
+./runtest.exe -w entry-static.exe memmem_oob
+./runtest.exe -w entry-static.exe mkdtemp_failure
+./runtest.exe -w entry-static.exe mkstemp_failure
+./runtest.exe -w entry-static.exe printf_1e9_oob
+./runtest.exe -w entry-static.exe printf_fmt_g_round
+./runtest.exe -w entry-static.exe printf_fmt_g_zeros
+./runtest.exe -w entry-static.exe printf_fmt_n
+#./runtest.exe -w entry-static.exe pthread_robust_detach
+./runtest.exe -w entry-static.exe pthread_cancel_sem_wait
+./runtest.exe -w entry-static.exe pthread_cond_smasher
+#./runtest.exe -w entry-static.exe pthread_condattr_setclock
+./runtest.exe -w entry-static.exe pthread_exit_cancel
+./runtest.exe -w entry-static.exe pthread_once_deadlock
+./runtest.exe -w entry-static.exe pthread_rwlock_ebusy
+./runtest.exe -w entry-static.exe putenv_doublefree
+./runtest.exe -w entry-static.exe regex_backref_0
+./runtest.exe -w entry-static.exe regex_bracket_icase
+./runtest.exe -w entry-static.exe regex_ere_backref
+./runtest.exe -w entry-static.exe regex_escaped_high_byte
+./runtest.exe -w entry-static.exe regex_negated_range
+./runtest.exe -w entry-static.exe regexec_nosub
+./runtest.exe -w entry-static.exe rewind_clear_error
+./runtest.exe -w entry-static.exe rlimit_open_files
+./runtest.exe -w entry-static.exe scanf_bytes_consumed
+./runtest.exe -w entry-static.exe scanf_match_literal_eof
+./runtest.exe -w entry-static.exe scanf_nullbyte_char
+#./runtest.exe -w entry-static.exe setvbuf_unget
+./runtest.exe -w entry-static.exe sigprocmask_internal
+./runtest.exe -w entry-static.exe sscanf_eof
+./runtest.exe -w entry-static.exe statvfs
+./runtest.exe -w entry-static.exe strverscmp
+./runtest.exe -w entry-static.exe syscall_sign_extend
+./runtest.exe -w entry-static.exe uselocale_0
+./runtest.exe -w entry-static.exe wcsncpy_read_overflow
+./runtest.exe -w entry-static.exe wcsstr_false_negative
+./busybox echo "#### OS COMP TEST GROUP END libctest-glibc ####"
+"#####;
+#[cfg(any(target_arch = "loongarch64"))]
+const LIBCTEST_SCRIPT_GLIBC: &str = r#####"./busybox echo "#### OS COMP TEST GROUP START libctest-glibc ####"
+./runtest.exe -w entry-static.exe argv
+./runtest.exe -w entry-static.exe basename
+./runtest.exe -w entry-static.exe clocale_mbfuncs
+./runtest.exe -w entry-static.exe clock_gettime
+./runtest.exe -w entry-static.exe dirname
+./runtest.exe -w entry-static.exe env
+./runtest.exe -w entry-static.exe fdopen
+./runtest.exe -w entry-static.exe fnmatch
+./runtest.exe -w entry-static.exe fscanf
+./runtest.exe -w entry-static.exe fwscanf
+./runtest.exe -w entry-static.exe iconv_open
+./runtest.exe -w entry-static.exe inet_pton
+./runtest.exe -w entry-static.exe mbc
+./runtest.exe -w entry-static.exe memstream
+#./runtest.exe -w entry-static.exe pthread_cancel_points
+#./runtest.exe -w entry-static.exe pthread_cancel
+#./runtest.exe -w entry-static.exe pthread_cond
+#./runtest.exe -w entry-static.exe pthread_tsd
+#./runtest.exe -w entry-static.exe qsort
+./runtest.exe -w entry-static.exe random
+./runtest.exe -w entry-static.exe search_hsearch
+./runtest.exe -w entry-static.exe search_insque
+./runtest.exe -w entry-static.exe search_lsearch
+./runtest.exe -w entry-static.exe search_tsearch
+./runtest.exe -w entry-static.exe setjmp
+./runtest.exe -w entry-static.exe snprintf
+#./runtest.exe -w entry-static.exe socket
+./runtest.exe -w entry-static.exe sscanf
+./runtest.exe -w entry-static.exe sscanf_long
+./runtest.exe -w entry-static.exe stat
+./runtest.exe -w entry-static.exe strftime
+./runtest.exe -w entry-static.exe string
+./runtest.exe -w entry-static.exe string_memcpy
+./runtest.exe -w entry-static.exe string_memmem
+./runtest.exe -w entry-static.exe string_memset
+./runtest.exe -w entry-static.exe string_strchr
+./runtest.exe -w entry-static.exe string_strcspn
+./runtest.exe -w entry-static.exe string_strstr
+./runtest.exe -w entry-static.exe strptime
+./runtest.exe -w entry-static.exe strtod
+./runtest.exe -w entry-static.exe strtod_simple
+./runtest.exe -w entry-static.exe strtof
+./runtest.exe -w entry-static.exe strtol
+./runtest.exe -w entry-static.exe strtold
+./runtest.exe -w entry-static.exe swprintf
+./runtest.exe -w entry-static.exe tgmath
+./runtest.exe -w entry-static.exe time
+./runtest.exe -w entry-static.exe tls_align
+./runtest.exe -w entry-static.exe udiv
+#./runtest.exe -w entry-static.exe ungetc
+./runtest.exe -w entry-static.exe utime
+./runtest.exe -w entry-static.exe wcsstr
+./runtest.exe -w entry-static.exe wcstol
+#./runtest.exe -w entry-static.exe daemon_failure
+./runtest.exe -w entry-static.exe dn_expand_empty
+./runtest.exe -w entry-static.exe dn_expand_ptr_0
+#./runtest.exe -w entry-static.exe fflush_exit
+./runtest.exe -w entry-static.exe fgets_eof
+./runtest.exe -w entry-static.exe fgetwc_buffering
+./runtest.exe -w entry-static.exe fpclassify_invalid_ld80
+./runtest.exe -w entry-static.exe ftello_unflushed_append
+./runtest.exe -w entry-static.exe getpwnam_r_crash
+./runtest.exe -w entry-static.exe getpwnam_r_errno
+./runtest.exe -w entry-static.exe iconv_roundtrips
+./runtest.exe -w entry-static.exe inet_ntop_v4mapped
+./runtest.exe -w entry-static.exe inet_pton_empty_last_field
+./runtest.exe -w entry-static.exe iswspace_null
+./runtest.exe -w entry-static.exe lrand48_signextend
+./runtest.exe -w entry-static.exe lseek_large
+./runtest.exe -w entry-static.exe malloc_0
+./runtest.exe -w entry-static.exe mbsrtowcs_overflow
+./runtest.exe -w entry-static.exe memmem_oob_read
+./runtest.exe -w entry-static.exe memmem_oob
+./runtest.exe -w entry-static.exe mkdtemp_failure
+./runtest.exe -w entry-static.exe mkstemp_failure
+./runtest.exe -w entry-static.exe printf_1e9_oob
+./runtest.exe -w entry-static.exe printf_fmt_g_round
+./runtest.exe -w entry-static.exe printf_fmt_g_zeros
+./runtest.exe -w entry-static.exe printf_fmt_n
+#./runtest.exe -w entry-static.exe pthread_robust_detach
+#./runtest.exe -w entry-static.exe pthread_cancel_sem_wait
+#./runtest.exe -w entry-static.exe pthread_cond_smasher
+#./runtest.exe -w entry-static.exe pthread_condattr_setclock
+#./runtest.exe -w entry-static.exe pthread_exit_cancel
+#./runtest.exe -w entry-static.exe pthread_once_deadlock
+#./runtest.exe -w entry-static.exe pthread_rwlock_ebusy
+./runtest.exe -w entry-static.exe putenv_doublefree
+./runtest.exe -w entry-static.exe regex_backref_0
+./runtest.exe -w entry-static.exe regex_bracket_icase
+./runtest.exe -w entry-static.exe regex_ere_backref
+./runtest.exe -w entry-static.exe regex_escaped_high_byte
+./runtest.exe -w entry-static.exe regex_negated_range
+./runtest.exe -w entry-static.exe regexec_nosub
+./runtest.exe -w entry-static.exe rewind_clear_error
+./runtest.exe -w entry-static.exe rlimit_open_files
+./runtest.exe -w entry-static.exe scanf_bytes_consumed
+./runtest.exe -w entry-static.exe scanf_match_literal_eof
+./runtest.exe -w entry-static.exe scanf_nullbyte_char
+#./runtest.exe -w entry-static.exe setvbuf_unget
+./runtest.exe -w entry-static.exe sigprocmask_internal
+./runtest.exe -w entry-static.exe sscanf_eof
+./runtest.exe -w entry-static.exe statvfs
+./runtest.exe -w entry-static.exe strverscmp
+./runtest.exe -w entry-static.exe syscall_sign_extend
+./runtest.exe -w entry-static.exe uselocale_0
+./runtest.exe -w entry-static.exe wcsncpy_read_overflow
+./runtest.exe -w entry-static.exe wcsstr_false_negative
+./busybox echo "#### OS COMP TEST GROUP END libctest-glibc ####"
+"#####;
+
+const LIBCTEST_SCRIPT_MUSL: &str = r#####"./busybox echo "#### OS COMP TEST GROUP START libctest-musl ####"
+./runtest.exe -w entry-static.exe argv
+./runtest.exe -w entry-static.exe basename
+./runtest.exe -w entry-static.exe clocale_mbfuncs
+./runtest.exe -w entry-static.exe clock_gettime
+./runtest.exe -w entry-static.exe dirname
+./runtest.exe -w entry-static.exe env
+./runtest.exe -w entry-static.exe fdopen
+./runtest.exe -w entry-static.exe fnmatch
+./runtest.exe -w entry-static.exe fscanf
+./runtest.exe -w entry-static.exe fwscanf
+./runtest.exe -w entry-static.exe iconv_open
+./runtest.exe -w entry-static.exe inet_pton
+./runtest.exe -w entry-static.exe mbc
+./runtest.exe -w entry-static.exe memstream
+#./runtest.exe -w entry-static.exe pthread_cancel_points
+#./runtest.exe -w entry-static.exe pthread_cancel
+#./runtest.exe -w entry-static.exe pthread_cond
+#./runtest.exe -w entry-static.exe pthread_tsd
+#./runtest.exe -w entry-static.exe qsort
+./runtest.exe -w entry-static.exe random
+./runtest.exe -w entry-static.exe search_hsearch
+./runtest.exe -w entry-static.exe search_insque
+./runtest.exe -w entry-static.exe search_lsearch
+./runtest.exe -w entry-static.exe search_tsearch
+./runtest.exe -w entry-static.exe setjmp
+./runtest.exe -w entry-static.exe snprintf
+#./runtest.exe -w entry-static.exe socket
+./runtest.exe -w entry-static.exe sscanf
+./runtest.exe -w entry-static.exe sscanf_long
+./runtest.exe -w entry-static.exe stat
+./runtest.exe -w entry-static.exe strftime
+./runtest.exe -w entry-static.exe string
+./runtest.exe -w entry-static.exe string_memcpy
+./runtest.exe -w entry-static.exe string_memmem
+./runtest.exe -w entry-static.exe string_memset
+./runtest.exe -w entry-static.exe string_strchr
+./runtest.exe -w entry-static.exe string_strcspn
+./runtest.exe -w entry-static.exe string_strstr
+./runtest.exe -w entry-static.exe strptime
+./runtest.exe -w entry-static.exe strtod
+./runtest.exe -w entry-static.exe strtod_simple
+./runtest.exe -w entry-static.exe strtof
+./runtest.exe -w entry-static.exe strtol
+./runtest.exe -w entry-static.exe strtold
+./runtest.exe -w entry-static.exe swprintf
+./runtest.exe -w entry-static.exe tgmath
+./runtest.exe -w entry-static.exe time
+./runtest.exe -w entry-static.exe tls_align
+./runtest.exe -w entry-static.exe udiv
+#./runtest.exe -w entry-static.exe ungetc
+./runtest.exe -w entry-static.exe utime
+./runtest.exe -w entry-static.exe wcsstr
+./runtest.exe -w entry-static.exe wcstol
+#./runtest.exe -w entry-static.exe daemon_failure
+./runtest.exe -w entry-static.exe dn_expand_empty
+./runtest.exe -w entry-static.exe dn_expand_ptr_0
+#./runtest.exe -w entry-static.exe fflush_exit
+./runtest.exe -w entry-static.exe fgets_eof
+./runtest.exe -w entry-static.exe fgetwc_buffering
+./runtest.exe -w entry-static.exe fpclassify_invalid_ld80
+./runtest.exe -w entry-static.exe ftello_unflushed_append
+./runtest.exe -w entry-static.exe getpwnam_r_crash
+./runtest.exe -w entry-static.exe getpwnam_r_errno
+./runtest.exe -w entry-static.exe iconv_roundtrips
+./runtest.exe -w entry-static.exe inet_ntop_v4mapped
+./runtest.exe -w entry-static.exe inet_pton_empty_last_field
+./runtest.exe -w entry-static.exe iswspace_null
+./runtest.exe -w entry-static.exe lrand48_signextend
+./runtest.exe -w entry-static.exe lseek_large
+./runtest.exe -w entry-static.exe malloc_0
+./runtest.exe -w entry-static.exe mbsrtowcs_overflow
+./runtest.exe -w entry-static.exe memmem_oob_read
+./runtest.exe -w entry-static.exe memmem_oob
+./runtest.exe -w entry-static.exe mkdtemp_failure
+./runtest.exe -w entry-static.exe mkstemp_failure
+./runtest.exe -w entry-static.exe printf_1e9_oob
+./runtest.exe -w entry-static.exe printf_fmt_g_round
+./runtest.exe -w entry-static.exe printf_fmt_g_zeros
+./runtest.exe -w entry-static.exe printf_fmt_n
+#./runtest.exe -w entry-static.exe pthread_robust_detach
+#./runtest.exe -w entry-static.exe pthread_cancel_sem_wait
+#./runtest.exe -w entry-static.exe pthread_cond_smasher
+#./runtest.exe -w entry-static.exe pthread_condattr_setclock
+#./runtest.exe -w entry-static.exe pthread_exit_cancel
+#./runtest.exe -w entry-static.exe pthread_once_deadlock
+#./runtest.exe -w entry-static.exe pthread_rwlock_ebusy
+./runtest.exe -w entry-static.exe putenv_doublefree
+./runtest.exe -w entry-static.exe regex_backref_0
+./runtest.exe -w entry-static.exe regex_bracket_icase
+./runtest.exe -w entry-static.exe regex_ere_backref
+./runtest.exe -w entry-static.exe regex_escaped_high_byte
+./runtest.exe -w entry-static.exe regex_negated_range
+./runtest.exe -w entry-static.exe regexec_nosub
+./runtest.exe -w entry-static.exe rewind_clear_error
+./runtest.exe -w entry-static.exe rlimit_open_files
+./runtest.exe -w entry-static.exe scanf_bytes_consumed
+./runtest.exe -w entry-static.exe scanf_match_literal_eof
+./runtest.exe -w entry-static.exe scanf_nullbyte_char
+#./runtest.exe -w entry-static.exe setvbuf_unget
+./runtest.exe -w entry-static.exe sigprocmask_internal
+./runtest.exe -w entry-static.exe sscanf_eof
+./runtest.exe -w entry-static.exe statvfs
+./runtest.exe -w entry-static.exe strverscmp
+./runtest.exe -w entry-static.exe syscall_sign_extend
+./runtest.exe -w entry-static.exe uselocale_0
+./runtest.exe -w entry-static.exe wcsncpy_read_overflow
+./runtest.exe -w entry-static.exe wcsstr_false_negative
+./busybox echo "#### OS COMP TEST GROUP END libctest-musl ####"
+"#####;

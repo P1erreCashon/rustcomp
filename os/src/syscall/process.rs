@@ -228,7 +228,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> SysResult<isize> {
             let exit_code = child.inner_exclusive_access().exit_code;
             // ++++ release child PCB
             if exit_code_ptr != core::ptr::null_mut(){
-                *translated_refmut(inner.memory_set.lock().token(), exit_code_ptr) = exit_code;
+                *crate::mm::safe_translated_refmut(inner.memory_set.clone(), exit_code_ptr) = exit_code;
             }
             return Ok(found_pid as isize);
         } else {
@@ -797,6 +797,45 @@ pub fn sys_tgkill(tgid: isize, tid: isize, sig: usize) -> SysResult<isize> {
      //   println!("[kernel] sys_tgkill: Permission denied to send signal {} to tgid={}", sig, tgid);
         return Err(SysError::EPERM);
     }
+
+    // 将信号添加到目标任务的信号集
+    if let Some(flag) = SignalFlags::from_bits(1 << (sig - 1)) {
+     //   println!("[kernel] sys_tgkill: Sent signal {} to tgid={}, tid={}", sig, tgid, tid);
+        let mut inner = task.inner_exclusive_access();
+        inner.signals |= flag;
+        inner.signal_queue.push(SigInfo{
+            signum:sig as i32,
+            code:SigInfo::TKILL,
+            details: SigDetails::Kill { pid: task.getpid() },
+        });
+        drop(inner);
+        Ok(0)
+    } else {
+    //    println!("[kernel] sys_tgkill: Invalid signal {}", sig);
+        Err(SysError::EINVAL)
+    }
+}
+
+pub fn sys_tkill(tid: isize, sig: usize) -> SysResult<isize> {
+   // println!("[kernel] sys_tgkill: tgid={}, tid={}, sig={}", tgid, tid, sig);
+
+    // 检查信号编号是否合法
+    if sig > MAX_SIG {
+   //     println!("[kernel] sys_tgkill: Invalid signal number: {}", sig);
+        return Err(SysError::EINVAL);
+    }
+
+    // 获取目标任务
+    let task = 
+        match tid2task(tid as usize) {
+            Some(task) => task,
+            None => {
+     //           println!("[kernel] sys_tgkill: Thread group {} not found", tgid);
+                return Err(SysError::ESRCH);
+            }
+        };
+
+
 
     // 将信号添加到目标任务的信号集
     if let Some(flag) = SignalFlags::from_bits(1 << (sig - 1)) {
