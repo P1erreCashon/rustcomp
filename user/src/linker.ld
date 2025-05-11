@@ -1,4 +1,4 @@
-OUTPUT_ARCH(riscv)
+OUTPUT_ARCH(loongarch)
 ENTRY(_start)
 
 BASE_ADDRESS = 0x10000;

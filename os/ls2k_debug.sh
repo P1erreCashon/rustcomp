@@ -9,11 +9,11 @@ cd $RUNENV_PREFIX
 
 ./qemu-system-loongarch64 \
 	-M virt, \
-	-kernel /home/pierrecashon/rustcomp/os/target/loongarch64-unknown-none/release/os -m 1G -nographic -smp 1 -drive file=~/rustcomp/user/target/riscv64gc-unknown-none-elf/release/fs.img,if=none,format=raw,id=x0  \
+	-kernel /home/pierrecashon/rustcomp/os/target/loongarch64-unknown-none/release/os -m 1G -nographic -smp 1 -drive file=~/testsuits-for-oskernel-pre-20250506/sdcard-la.img,if=none,format=raw,id=x0  \
     -device virtio-blk-pci,drive=x0 \
     -rtc base=utc
 #	-S -s
-
-	 
+#-drive file=~/rustcomp/user/target/riscv64gc-unknown-none-elf/release/fs.img,if=none,format=raw,id=x0  \
+	 #~/testsuits-for-oskernel-pre-20250506/sdcard-la.img
 	#-S -s 	 
 		#-hdb ~/rcore-tutorial-v3-with-hal-component/user/target/loongarch64-unknown-none/release/fs.img

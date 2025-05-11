@@ -4,9 +4,9 @@
 //! Constants used in rCore
 
 #[allow(unused)]
-pub const USER_STACK_SIZE: usize = 4096 * 20;
+pub const USER_STACK_SIZE: usize = 4096 * 85;
 pub const KERNEL_STACK_SIZE: usize = 4096 * 10;
-pub const KERNEL_HEAP_SIZE: usize = 0x300_0000;
+pub const KERNEL_HEAP_SIZE: usize = 0x500_0000;
 pub const USER_STACK_TOP: usize = 0x13_0000_0000;
 pub const USER_MMAP_TOP: usize = 0x11_0000_0000;
 

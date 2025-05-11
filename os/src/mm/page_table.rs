@@ -1,7 +1,7 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 use arch::addr::VirtPage;
 //use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
-use arch::pagetable::{PageTable,MappingFlags};
+use arch::pagetable::{MappingFlags, MappingSize, PageTable};
 use arch::{TrapType, PAGE_SIZE};
 use alloc::string::{String,ToString};
 use _core::str::from_utf8_unchecked;
@@ -47,14 +47,23 @@ pub fn safe_translated_byte_buffer(
             None => {
                 let r = memory_set.handle_lazy_addr(start_va.addr(),TrapType::StorePageFault(start_va.addr()) );
                 if r.is_err(){
-                    let _ = memory_set.handle_cow_addr(start_va.addr());
+                    if let Err(e) = memory_set.handle_cow_addr(start_va.addr()){
+                        panic!("err when translating refmut:{:?}",e);
+                    }
                 }
             }
             Some((pa,_mp)) => {
-                if pa.addr() == 0 {
+                if pa.addr() == 0 || !_mp.contains(MappingFlags::P){
                     let r = memory_set.handle_lazy_addr(start_va.addr(),TrapType::StorePageFault(start_va.addr()) );
                     if r.is_err(){
-                        let _ = memory_set.handle_cow_addr(start_va.addr());
+                        if let Err(e) = memory_set.handle_cow_addr(start_va.addr()){
+                            panic!("err when translating refmut:{:?}",e);
+                        }
+                    }
+                }
+                if _mp.contains(MappingFlags::cow) && pa.addr() != 0{
+                    if let Err(e) = memory_set.handle_cow_addr(start_va.addr()){
+                        panic!("err when translating refmut:{:?}",e);
                     }
                 }
             }
@@ -121,14 +130,23 @@ pub fn safe_translated_refmut<T>(memory_set: Arc<Mutex<MemorySet>>, ptr: *mut T)
         None => {
             let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
             if r.is_err(){
-                let _ = memory_set.handle_cow_addr(va.addr());
+                if let Err(e) = memory_set.handle_cow_addr(va.addr()){
+                    panic!("err when translating refmut:{:?}",e);
+                }
             }
         }
         Some((pa,_mp)) => {
-            if pa.addr() == 0 {
+            if pa.addr() == 0 || !_mp.contains(MappingFlags::P){
                 let r = memory_set.handle_lazy_addr(va.addr(),TrapType::StorePageFault(va.addr()) );
                 if r.is_err(){
-                    let _ = memory_set.handle_cow_addr(va.addr());
+                    if let Err(e) = memory_set.handle_cow_addr(va.addr()){
+                        panic!("err when translating refmut:{:?}",e);
+                    }
+                }
+            }
+            if _mp.contains(MappingFlags::cow) && pa.addr() != 0{
+                if let Err(e) = memory_set.handle_cow_addr(va.addr()){
+                    panic!("err when translating refmut:{:?}",e);
                 }
             }
         }

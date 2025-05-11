@@ -335,10 +335,13 @@ fn loongarch64_trap_handler(tf: &mut TrapFrame) -> TrapType {
         }
         Trap::Exception(Exception::Syscall) => TrapType::UserEnvCall,
         Trap::Exception(Exception::StorePageFault)
+        | Trap::Exception(Exception::PagePrivilegeIllegal)
         | Trap::Exception(Exception::PageModifyFault) => {
             TrapType::StorePageFault(badv::read().raw())
         }
         Trap::Exception(Exception::LoadPageFault) => TrapType::LoadPageFault(badv::read().raw()),
+        Trap::Exception(Exception::FetchPageFault) => TrapType::LoadPageFault(badv::read().raw()),
+        Trap::Exception(Exception::FetchInstructionAddressError) => TrapType::LoadPageFault(badv::read().raw()),
         _ => {
             panic!(
                 "Unhandled trap {:?} @ {:#x} BADV: {:#x}:\n{:#x?}",

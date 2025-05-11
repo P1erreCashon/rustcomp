@@ -1,9 +1,9 @@
 //!Implementation of [`TaskControlBlock`]
-use super::{tid_alloc, TidAddress, TidHandle,current_task,Tms,TimeSpec,FdTable};
+use super::{current_task, tid_alloc, FdTable, SigInfo, TidAddress, TidHandle, TimeSpec, Tms};
 use super::aux::*;
 use config::{KERNEL_STACK_SIZE, USER_MMAP_TOP, USER_STACK_SIZE,RLimit,MAX_FD};
 use crate::fs::{Stdin, Stdout};
-use crate::mm::{translated_ref, translated_refmut, MapArea, MapAreaType, MapPermission, MapType, MemorySet};
+use crate::mm::{safe_translated_refmut, translated_ref, translated_refmut, MapArea, MapAreaType, MapPermission, MapType, MemorySet};
 use arch::addr::VirtAddr;
 use riscv::register::mvendorid;
 use spin::{Mutex, MutexGuard};
@@ -77,7 +77,7 @@ pub struct TaskControlBlockInner {
     pub fd_table: Arc<Mutex<FdTable>>,//Vec<Option<Arc<dyn File + Send + Sync>>>,
    // pub fd_table_rlimit:RLimit,
     pub signals: SignalFlags, // 新增：未处理的信号
-    pub signal_queue: Vec<usize>, // 新增：信号队列，按发送顺序存储
+    pub signal_queue: Vec<SigInfo>, // 新增：信号队列，按发送顺序存储
     pub killed: bool,         // 新增：是否被信号终止
     pub frozen: bool,
     pub signal_mask: SignalFlags,      // 信号掩码
@@ -199,32 +199,32 @@ impl TaskControlBlock {
         task_control_block
     }
     ///
-    fn push_into_user_stack<T: 'static>(&self,token:PageTable,user_sp:&mut usize,data:T){
+    fn push_into_user_stack<T: 'static>(&self,memory_set:Arc<Mutex<MemorySet>>,user_sp:&mut usize,data:T){
         *user_sp -= core::mem::size_of::<T>();
-        *translated_refmut(token, *user_sp as *mut T) = data;
+        *safe_translated_refmut(memory_set, *user_sp as *mut T) = data;
     }
     ///
     pub fn exec(&self, elf_data: &[u8], args: Vec<String>) {
         // memory_set with elf program headers/trampoline/trap context/user stack
-        let (mut memory_set, mut user_sp, entry_point, heap_top,entry_size,ph_count,tls_addr,phdr) = MemorySet::from_elf(elf_data);
+        let (memory_set, mut user_sp, entry_point, heap_top,entry_size,ph_count,tls_addr,phdr) = MemorySet::from_elf(elf_data);
         self.inner_exclusive_access().heap_top = heap_top;
         self.inner_exclusive_access().stack_bottom =user_sp - USER_STACK_SIZE;
         self.inner_exclusive_access().max_data_addr = heap_top;
         self.inner_exclusive_access().tms= Tms::new();
-        memory_set.activate();
+        let memory_set = Arc::new(Mutex::new(memory_set));
+        memory_set.lock().activate();
         //1. 使用0标记栈底，压入一个用于glibc的伪随机数，并以16字节对齐
-        let token = memory_set.token();
         let mut data:u64 = 0;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         data = 0x114514FF114514;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         data = 0x2 << 60;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         data = 0x3 << 60;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         let rd_pos = user_sp;
 
@@ -232,7 +232,7 @@ impl TaskControlBlock {
         // 2. 压入 env string
 
         data = 0;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         user_sp -= user_sp % 16;
 
@@ -244,60 +244,60 @@ impl TaskControlBlock {
             argv_addr[i] = user_sp;
             let mut p = user_sp;
             for c in args[i].as_bytes() {
-                *translated_refmut(memory_set.token(), p as *mut u8) = *c;
+                *safe_translated_refmut(memory_set.clone(), p as *mut u8) = *c;
                 p += 1;
             }
-            *translated_refmut(memory_set.token(), p as *mut u8) = 0;
+            *safe_translated_refmut(memory_set.clone(), p as *mut u8) = 0;
         }
 
         user_sp -= user_sp % 16;
 
         // 4. 压入 auxv
         let mut aux = AuxvT::new(AT_NULL, 0);
-        self.push_into_user_stack(token,&mut user_sp,aux);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
 
         aux.a_type = AT_PAGESZ;
         aux.a_val = PAGE_SIZE;
-        self.push_into_user_stack(token,&mut user_sp,aux);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
 
         aux.a_type = AT_PHNUM;
         aux.a_val = ph_count as usize;
-        self.push_into_user_stack(token,&mut user_sp,aux);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
     
         aux.a_type = AT_PHENT;
         aux.a_val = entry_size as usize;
-        self.push_into_user_stack(token,&mut user_sp,aux);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
 
         aux.a_type = AT_PHDR;
         aux.a_val = phdr;
-        self.push_into_user_stack(token,&mut user_sp,aux);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
 
         aux.a_type = AT_RANDOM;
         aux.a_val = rd_pos;
-        self.push_into_user_stack(token,&mut user_sp,aux);
-
-        if let Some(dl_entry) = memory_set.load_interp(elf_data){
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
+        let dl_entry = memory_set.lock().load_interp(elf_data);
+        if dl_entry.is_some(){
             aux.a_type = AT_BASE;
-            aux.a_val = dl_entry;
-            self.push_into_user_stack(token,&mut user_sp,aux);
+            aux.a_val = dl_entry.unwrap();
+            self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
         }
         else{
             aux.a_type = AT_BASE;
             aux.a_val = 0;
-            self.push_into_user_stack(token,&mut user_sp,aux);
+            self.push_into_user_stack(memory_set.clone(),&mut user_sp,aux);
         }
 
         // 5. 压入 envp
         data = 0;
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
 
         //push *argv
         user_sp -= (args.len() + 1) * core::mem::size_of::<usize>();
         let argv_base = user_sp;
         let mut argv: Vec<_> = (0..=args.len())
             .map(|arg| {
-                translated_refmut(
-                    memory_set.token(),
+                safe_translated_refmut(
+                    memory_set.clone(),
                     (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
                 )
             })
@@ -308,15 +308,15 @@ impl TaskControlBlock {
         }
         //push argc on stack
         data = args.len() as u64;        
-        self.push_into_user_stack(token,&mut user_sp,data);
+        self.push_into_user_stack(memory_set.clone(),&mut user_sp,data);
         // make the user_sp aligned to 8B for k210 platform
         user_sp -= user_sp % core::mem::size_of::<usize>();
 
-        memory_set.activate();
+        memory_set.lock().activate();
         // **** access current TCB exclusively
         let mut inner = self.inner_exclusive_access();
         // substitute memory_set
-        inner.memory_set = Arc::new(Mutex::new(memory_set));
+        inner.memory_set = memory_set;
         // update trap_cx ppn
         // FIXME: This is a temporary solution
         inner.trap_cx = TrapFrame::new();
@@ -332,7 +332,7 @@ impl TaskControlBlock {
         // **** release current PCB
     }
     ///
-    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags,stack:usize,ctid:*mut i32) -> Arc<TaskControlBlock> {
+    pub fn fork(self: &Arc<TaskControlBlock>, flags: CloneFlags,stack:usize,ctid:*mut i32,is_clone3:bool) -> Arc<TaskControlBlock> {
         //crate::mm::show_mem_alloced();
         // ---- hold parent PCB lock
         let mut parent_inner = self.inner_exclusive_access();
@@ -371,14 +371,20 @@ impl TaskControlBlock {
             trap_cx[TrapFrameArgs::RET] = 0;
             pid = tid_handle.0;
         }
-        if stack != 0{
-            let token = parent_inner.get_user_token();
-            let entry_point = translated_ref(token, stack as *const usize);
-            let arg = translated_ref(token, (stack + 8) as *const usize);
-        //    println!("entrypoint:{:x} arg:{:x}",*entry_point,*arg);
-            trap_cx[TrapFrameArgs::SEPC] = *entry_point;
-            trap_cx[TrapFrameArgs::RET] = *arg;
+        if stack != 0{            
             trap_cx[TrapFrameArgs::SP] = stack;
+            if is_clone3{
+                trap_cx[TrapFrameArgs::RET] = 0;
+            }
+            else{ 
+                let token = parent_inner.get_user_token();
+                let entry_point = translated_ref(token, stack as *const usize);
+                let arg = translated_ref(token, (stack + 8) as *const usize);
+        //    println!("entrypoint:{:x} arg:{:x}",*entry_point,*arg);
+                trap_cx[TrapFrameArgs::SEPC] = *entry_point;
+                trap_cx[TrapFrameArgs::RET] = *arg;
+                trap_cx[TrapFrameArgs::ARG0] = *arg;
+            }
         }
      //   println!("fork ctid:{:x}",ctid as usize);
         if flags.contains(CloneFlags::CHILD_SETTID) {

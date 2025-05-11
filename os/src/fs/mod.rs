@@ -16,7 +16,7 @@ pub trait File: Send + Sync {
 } */
 
 pub use inode::{list_apps, open_file,path_to_dentry,path_to_father_dentry,create_file};
-pub use stdio::{Stdin, Stdout,StdioDentry,StdioInode};
+pub use stdio::{Stdin, Stdout,StdioDentry,StdioInode,Stderr};
 /// pipe mod
 pub mod pipe;
 pub use pipe::{make_pipe,PipeDentry,PipeInode}; // 导出 make_pipe 函数

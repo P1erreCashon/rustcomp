@@ -37,11 +37,11 @@ impl TaskManager {
         self.ready_queue.pop_front()
     }
     /// 根据 PID 查找任务（仅在就绪队列中查找）
-    pub fn find_task_by_pid(&self, pid: usize) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.iter().find(|task| task.getpid() == pid).cloned()
+    pub fn find_task_by_tid(&self, tid: usize) -> Option<Arc<TaskControlBlock>> {
+        self.ready_queue.iter().find(|task| task.gettid() == tid).cloned()
     }
-    pub fn remove_blocked_task_by_pid(&mut self, pid: usize){
-        if let Some(pos) = self.block_queue.iter().position(|task| task.getpid() == pid){
+    pub fn remove_blocked_task_by_tid(&mut self, tid: usize){
+        if let Some(pos) = self.block_queue.iter().position(|task| task.gettid() == tid){
             self.block_queue.remove(pos);
         }
     }
@@ -58,21 +58,21 @@ lazy_static! {
 }
 ///Interface offered to add task
 pub fn add_task(task: Arc<TaskControlBlock>) {
-    log_debug!("add task:{} to ready queue",task.getpid());
+    log_debug!("add task:{} to ready queue",task.gettid());
     TASK_MANAGER.lock().add(task.clone());
     // 同时添加到 PID2TCB
-    PID2TCB.lock().insert(task.getpid(), task);
+    PID2TCB.lock().insert(task.gettid(), task);
 }
 //
 pub fn add_blocked_task(task: Arc<TaskControlBlock>) {
-    log_debug!("add task:{} to block queue",task.getpid());
+    log_debug!("add task:{} to block queue",task.gettid());
     TASK_MANAGER.lock().add_block(task.clone());
 }
 ///
 pub fn wakeup_task(task: Arc<TaskControlBlock>) {
     let mut task_inner = task.inner_exclusive_access();
     task_inner.task_status = TaskStatus::Ready;
-    TASK_MANAGER.lock().remove_blocked_task_by_pid(task.getpid());
+    TASK_MANAGER.lock().remove_blocked_task_by_tid(task.gettid());
     drop(task_inner);
     add_task(task);
 }
@@ -100,11 +100,25 @@ pub fn remove_from_tid2task(tid: usize) {
         // 不再 panic，而是记录警告
     }
 }
-/* 
+
+#[allow(unused)]
 pub fn deb(){
     let manager = TASK_MANAGER.lock();
     for task in manager.block_queue.iter(){
-        let trap_cx = task.inner_exclusive_access().get_trap_cx();
-        println!("task:{} sepc:{:x}",task.getpid(),trap_cx[arch::TrapFrameArgs::SEPC]);
+        println!("block q task:{} ",task.gettid());
+        for child in task.inner_exclusive_access().children.iter(){
+            println!("task {} has child {}",task.gettid(),child.gettid());
+        }
     }
-}*/
+    for task in manager.ready_queue.iter(){
+        println!("ready q task:{} ",task.gettid());
+        for child in task.inner_exclusive_access().children.iter(){
+            println!("task {} has child {}",task.gettid(),child.gettid());
+        }
+    }
+    drop(manager);
+    let t2t = PID2TCB.lock();
+    for (id,_) in t2t.iter(){
+        println!("t2t has {}",id);
+    }
+}

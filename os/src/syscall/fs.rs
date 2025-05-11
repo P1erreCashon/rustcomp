@@ -154,14 +154,13 @@ pub fn sys_getcwd(cwd: *mut u8, size: usize) -> SysResult<isize> {
         return Err(SysError::EINVAL);
     }
     let binding = current_task().unwrap();
-    let token = current_user_token();
     let task_inner = binding.inner_exclusive_access();
     let current_path = task_inner.cwd.path();
     if current_path.len() >= size {
         return Err(SysError::ENOENT);
     }
     let bytes = current_path.as_bytes();
-    let cwd = translated_byte_buffer(token, cwd, bytes.len());
+    let cwd = safe_translated_byte_buffer(task_inner.memory_set.clone(), cwd, bytes.len());
     cwd.copy_from_slice(bytes);
     Ok(bytes.len() as isize)
 }
@@ -318,9 +317,7 @@ pub fn sys_mmap(
         area.map_file = map_file;
         area.mmap_flag = flags;
      //   println!("mmap fixed start:{:x} end:{:x} prot:{:x} {:x}",_start as usize,_start as usize + len,mprot,prot);
-        inner.memory_set.lock().debug_addr_info();
         inner.memory_set.lock().push_into_area_lazy(area);
-        inner.memory_set.lock().debug_addr_info();
         return Ok(_start as isize);
     }
     let inner = task.inner_exclusive_access();
@@ -503,6 +500,42 @@ pub fn sys_writev(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
     return Ok(total_write_size as isize);
 }
 
+pub fn sys_readv(fd:isize,iov:*const IoVec,iovcnt:usize)->SysResult<isize>{
+    let token = current_user_token();
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let fdtable = inner.fd_table.lock();
+    let file = fdtable.get(fd as usize)?;
+    let file = file.file();
+    drop(fdtable);
+    let mut offset = file.get_offset();
+    let mut total_read_size = 0;
+    let mut iov_iter = iov;
+   
+    for _i in 0..iovcnt{ 
+    //    println!("iov:{:?}",iov_iter);
+        let iovs = translated_ref(token, iov_iter);
+        if iovs.len == 0{
+            unsafe {
+                let _ = iov_iter.add(1);
+            }
+            continue;
+        }
+    //    println!("writev:write len:{}",iovs.len);
+        let ptr = iovs.base;
+        let buf = translated_byte_buffer(token, ptr as *mut u8, iovs.len);
+        let read_size = file.read_at(*offset, buf);
+        total_read_size += read_size;
+        *offset += read_size;
+        unsafe {
+            iov_iter = iov_iter.add(1);
+        }
+    }
+    drop(offset);
+    file.seek(total_read_size as i64, vfs_defs::SeekFlags::SEEK_CUR)?;
+    return Ok(total_read_size as isize);
+}
+
 pub fn sys_statfs(_path:*const u8,buf:*mut StatFs)->SysResult<isize>{
     let token = current_user_token();
     let buf = translated_refmut(token, buf);
@@ -667,7 +700,8 @@ pub fn sys_sendfile(outfd:isize,infd:isize,offset:*mut usize,count:usize)->SysRe
     let token = current_user_token();
     let task = current_task().unwrap();
     let inner = task.inner_exclusive_access();
-    let (outfile,infile) = (inner.fd_table.lock().get_file(outfd as usize)?,inner.fd_table.lock().get_file(infd as usize)?);
+    let table = inner.fd_table.lock();
+    let (outfile,infile) = (table.get_file(outfd as usize)?,table.get_file(infd as usize)?);
     if !infile.readable() || !outfile.writable() {
         return Err(SysError::EBADF);
     }

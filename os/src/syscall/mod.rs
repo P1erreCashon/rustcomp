@@ -30,6 +30,7 @@ const SYSCALL_GETDENTS64:usize = 61;
 const SYSCALL_LSEEK:usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_SENDFILE:usize = 71;
 const SYSCALL_PPOLL:usize = 73;
@@ -51,6 +52,7 @@ const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SETGID: usize = 144;
 const SYSCALL_SETUID: usize =146;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_TKILL: usize = 130;
 const SYSCALL_TGKILL: usize = 131;
 const SYSCALL_SIGACTION: usize = 134;
 const SYSCALL_SIGPROCMASK: usize = 135;
@@ -59,6 +61,7 @@ const SYSCALL_SIGRETURN: usize = 139;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_SETPGID:usize = 154;
 const SYSCALL_GETPGID:usize = 155;
+const SYSCALL_SETSID:usize = 157;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
@@ -69,8 +72,21 @@ const SYSCALL_GETGID: usize = 176;
 const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
 const SYSCALL_SYSINFO: usize = 179;
+const SYSCALL_SOCKET:usize = 198;
+const SYSCALL_SOCKETPAIR:usize = 199;
+const SYSCALL_BIND:usize = 200;
+const SYSCALL_LISTEN:usize = 201;
+const SYSCALL_ACCEPT:usize = 202;
+const SYSCALL_CONNECT:usize = 203;
+const SYSCALL_GETSOCKNAME:usize = 204;
+const SYSCALL_GETPEERNAME:usize = 205;
+const SYSCALL_SENDTO:usize = 206;
+const SYSCALL_RECVFROM:usize = 207;
+const SYSCALL_SENDMSG:usize = 211;
+const SYSCALL_SETSOCKOPT:usize = 208;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
+const SYSCALL_MREMAP: usize = 216;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
@@ -81,6 +97,7 @@ const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GET_RANDOM: usize = 278;
 const SYSCALL_STATX: usize = 291;
+const SYSCALL_CLONE3: usize = 435;
 
 mod fs;
 mod process;
@@ -99,7 +116,9 @@ use crate::task::check_pending_signals;
 pub use process::CloneFlags;
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
-   // println!("syscallid:{}",syscall_id);
+   // if syscall_id!=260{
+   //     println!("syscallid:{}",syscall_id);
+   // }
     let result:SysResult<isize>;
     match syscall_id {
         SYSCALL_IOCTL => {
@@ -132,6 +151,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
             result = sys_write(args[0], args[1] as *mut u8, args[2]);
       //      log_debug!("syscall_write result:{}",result);
         },
+        SYSCALL_READV =>{
+            result = sys_readv(args[0] as isize, args[1] as *const IoVec, args[2]);
+        },
         SYSCALL_WRITEV =>{
             result = sys_writev(args[0] as isize, args[1] as *const IoVec, args[2]);
         },
@@ -147,10 +169,10 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         },
         SYSCALL_KILL => {
             log_debug!("syscall_kill pid={} signal={}", args[0], args[1]);
-            result = sys_kill(args[0], args[1] as u32);
+            result = sys_kill(args[0], args[1]);
         },
         SYSCALL_SIGACTION => {
-            result = sys_sigaction(args[0] as i32, args[1] as *const _, args[2] as *mut _);
+            result = sys_sigaction(args[0], args[1] as *const _, args[2] as *mut _);
         }
         SYSCALL_SIGPROCMASK => {
             result = sys_sigprocmask(args[0] as i32, args[1] as *const _, args[2] as *mut _);
@@ -177,6 +199,42 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_PIPE => {
             result = sys_pipe(args[0] as *mut i32);
         },
+        SYSCALL_SOCKET =>{
+            result = Ok(0);
+        }
+        SYSCALL_SOCKETPAIR=>{
+            result = Ok(0);
+        }
+        SYSCALL_BIND =>{
+            result = Ok(0);
+        }
+        SYSCALL_LISTEN=>{
+            result = Ok(0);
+        }
+        SYSCALL_ACCEPT=>{
+            result = Ok(0);
+        }
+        SYSCALL_CONNECT=>{
+            result = Ok(0);
+        }
+        SYSCALL_GETSOCKNAME =>{
+            result = Ok(0);
+        }
+        SYSCALL_GETPEERNAME=>{
+            result = Ok(0);
+        }
+        SYSCALL_SENDTO=>{
+            result = Ok(0);
+        }
+        SYSCALL_RECVFROM=>{
+            result = Ok(0);
+        }
+        SYSCALL_SENDMSG=>{
+            result = Ok(0);
+        }
+        SYSCALL_SETSOCKOPT=>{
+            result = Ok(0);
+        }
         SYSCALL_BRK => {
          //   log_debug!("syscall_brk arg:{:x}",args[0]);
             result = sys_brk(args[0]);
@@ -235,6 +293,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_MUNMAP => {
             result = sys_munmap(args[0] as *mut usize, args[1]);
         }
+        SYSCALL_MREMAP => {
+            result = Err(SysError::EPERM);
+        }
         SYSCALL_GETDENTS64 => {
             result = sys_getdents(args[0] ,args[1] as *mut u8,args[2]);
         }
@@ -289,6 +350,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SETUID => {// 无
             result = Ok(0);
         }
+        SYSCALL_SETSID => {// 无
+            result = Ok(0);
+        }
         SYSCALL_EXIT_GROUP => {// 无返回值
             let pid = current_task().unwrap().gettid();
             log_debug!("syscall_exit exit code:{} tid:{}", args[0],pid);
@@ -312,8 +376,11 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_SYSLOG => {
             result = sys_log(args[0] as usize, args[1] as *mut u8, args[2] as usize);
         }
+        SYSCALL_TKILL => {
+            result = sys_tkill(args[0] as isize, args[1]);
+        },
         SYSCALL_TGKILL => {
-            result = sys_tgkill(args[0] as isize, args[1] as isize, args[2] as i32);
+            result = sys_tgkill(args[0] as isize, args[1] as isize, args[2]);
         },
         SYSCALL_MPROTECT => {
             result = sys_mprotect(VirtAddr::new(args[0]), args[1], args[2] as i32);
@@ -327,6 +394,9 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         SYSCALL_STATX=>{
             result = sys_statx(args[0] as isize,args[1] as *const u8,args[2] as i32,args[3] as u32,args[4] as *mut Statx);
         }
+        SYSCALL_CLONE3=>{
+            result = sys_clone3(args[0] as *const Clone3Args);
+        }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
     // 在系统调用返回前检查信号
@@ -338,12 +408,14 @@ pub fn syscall(syscall_id: usize, args: [usize; 6]) -> isize {
         unreachable!("Should have exited");
     }
     if let Err(e) = result{
+        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_FUTEX &&syscall_id!= SYSCALL_WAITPID{
         log_debug!("{} err:{}",sysid_to_string(syscall_id),e.as_str());
+        }
         return -(e as isize);
     }   
     else{
         let pid = current_task().unwrap().gettid();
-        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_FUTEX{
+        if syscall_id != 63 && syscall_id != 64 && syscall_id!=SYSCALL_FUTEX &&syscall_id!= SYSCALL_WAITPID{
             log_debug!("pid:{} {} result:{}",pid,sysid_to_string(syscall_id),result.clone().unwrap());
         }
         return result.unwrap();
@@ -570,6 +642,57 @@ fn sysid_to_string(syscall_id: usize)->String{
         }
         SYSCALL_MADVISE=>{
             ret.push_str("sys_madvise");
+        }
+        SYSCALL_SOCKET =>{
+            ret.push_str("sys_socket");
+        }
+        SYSCALL_SOCKETPAIR=>{
+            ret.push_str("sys_socketpair");
+        }
+        SYSCALL_BIND =>{
+            ret.push_str("sys_bind");
+        }
+        SYSCALL_LISTEN=>{
+            ret.push_str("sys_listen");
+        }
+        SYSCALL_ACCEPT=>{
+            ret.push_str("sys_accept");
+        }
+        SYSCALL_CONNECT=>{
+            ret.push_str("sys_connect");
+        }
+        SYSCALL_GETSOCKNAME =>{
+            ret.push_str("sys_getsockname");
+        }
+        SYSCALL_GETPEERNAME=>{
+            ret.push_str("sys_getpeername");
+        }
+        SYSCALL_SENDTO=>{
+            ret.push_str("sys_sendto");
+        }
+        SYSCALL_RECVFROM=>{
+            ret.push_str("sys_recvfrom");
+        }
+        SYSCALL_SENDMSG=>{
+            ret.push_str("sys_sendmsg");
+        }
+        SYSCALL_SETSOCKOPT=>{
+            ret.push_str("sys_setsockopt");
+        }
+        SYSCALL_MREMAP=>{
+            ret.push_str("sys_mremap");
+        }
+        SYSCALL_SETSID=>{
+            ret.push_str("sys_setsid");
+        }
+        SYSCALL_CLONE3=>{
+            ret.push_str("sys_clone3");
+        }
+        SYSCALL_READV=>{
+            ret.push_str("sys_readv");
+        }
+        SYSCALL_TKILL=>{
+            ret.push_str("sys_tkill");
         }
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }

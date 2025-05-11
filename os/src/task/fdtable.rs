@@ -1,7 +1,7 @@
 use alloc::{string::String, vec::Vec};
 use alloc::vec;
 use alloc::sync::Arc;
-use crate::fs::{Stdin, Stdout,StdioDentry,StdioInode};
+use crate::fs::{Stdin, Stdout,StdioDentry,StdioInode,Stderr};
 use vfs_defs::{Dentry, DentryInner, DentryState, File, FileInner, OpenFlags};
 use vfs::devfs::{DevFsType,DevSuperBlock};
 use config::{RLimit,MAX_FD};
@@ -75,7 +75,7 @@ impl FdTable{
                 // 1 -> stdout
                 Some(Fd::new(Arc::new(Stdout::new(FileInner::new(stdoutdentry.clone()))), FdFlags::empty())),
                 // 2 -> stderr
-                Some(Fd::new(Arc::new(Stdout::new(FileInner::new(stdoutdentry))), FdFlags::empty())),
+                Some(Fd::new(Arc::new(Stderr::new(FileInner::new(stdoutdentry))), FdFlags::empty())),
             ],
             fd_table_rlimit:RLimit{rlimit_cur:MAX_FD,rlimit_max:MAX_FD},
         }
